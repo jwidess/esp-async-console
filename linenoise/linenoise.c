@@ -151,21 +151,9 @@ static int history_len = 0;
 static char **history = NULL;
 static bool allow_empty = true;
 
-/* The linenoiseState structure represents the state during line editing.
- * We pass this state to functions implementing specific editing
- * functionalities. */
-struct linenoiseState {
-    char *buf;          /* Edited line buffer. */
-    size_t buflen;      /* Edited line buffer size. */
-    const char *prompt; /* Prompt to display. */
-    size_t plen;        /* Prompt length. */
-    size_t pos;         /* Current cursor position. */
-    size_t oldpos;      /* Previous refresh cursor position. */
-    size_t len;         /* Current edited line length. */
-    size_t cols;        /* Number of columns in terminal. */
-    size_t maxrows;     /* Maximum num of rows used so far (multiline mode) */
-    int history_index;  /* The history index we are currently editing. */
-};
+/* linenoiseState is now defined in linenoise.h (project-local async API patch)
+ * so that external modules can declare instances of the struct directly.
+ * The definition was moved there from this location. */
 
 enum KEY_ACTION{
 	KEY_NULL = 0,	    /* NULL */
@@ -541,7 +529,7 @@ void refreshShowHints(struct abuf *ab, struct linenoiseState *l, int plen) {
     char seq[64];
     if (hintsCallback && plen+l->len < l->cols) {
         int color = -1, bold = 0;
-        char *hint = hintsCallback(l->buf,&color,&bold);
+        const char *hint = hintsCallback(l->buf,&color,&bold);
         if (hint) {
             int hintlen = strlen(hint);
             int hintmaxlen = l->cols-(plen+l->len);
@@ -555,7 +543,7 @@ void refreshShowHints(struct abuf *ab, struct linenoiseState *l, int plen) {
             if (color != -1 || bold != 0)
                 abAppend(ab,"\033[0m",4);
             /* Call the function to free the hint returned. */
-            if (freeHintsCallback) freeHintsCallback(hint);
+            if (freeHintsCallback) freeHintsCallback((void *)hint);
         }
     }
 }
@@ -698,6 +686,28 @@ static void refreshLine(struct linenoiseState *l) {
         refreshMultiLine(l);
     else
         refreshSingleLine(l);
+}
+
+/* ── Async API: linenoiseHide / linenoiseShow ───────────────────────────────
+ *
+ * These allow a FreeRTOS task (e.g. the ESP_LOG vprintf hook) to atomically
+ * erase the prompt line, print a log message, and restore the prompt without
+ * corrupting what the user is typing.
+ * ─────────────────────────────────────────────────────────────────────────── */
+
+void linenoiseHide(struct linenoiseState *l) {
+    if (l == NULL || l->buf == NULL) return;  /* state inactive — no-op */
+    fprintf(stdout, "\r\033[0K");             /* CR + erase-to-end-of-line  */
+    flushWrite();
+}
+
+void linenoiseShow(struct linenoiseState *l) {
+    if (l == NULL || l->buf == NULL) return;  /* state inactive — no-op */
+    fwrite(l->prompt, 1, strlen(l->prompt), stdout);
+    if (l->len > 0) {
+        fwrite(l->buf, 1, l->len, stdout);
+    }
+    flushWrite();
 }
 
 /* Insert the character 'c' at cursor current position.
@@ -1099,6 +1109,212 @@ static int linenoiseEdit(char *buf, size_t buflen, const char *prompt)
         flushWrite();
     }
     return l.len;
+}
+
+/* ── Async edit API: linenoiseEditStart / Feed / Stop ────────────────────
+ *
+ * Non-blocking equivalent of linenoiseEdit / linenoiseRaw.
+ * Designed to be driven from a FreeRTOS task that calls linenoiseEditFeed
+ * every ~1 ms and yields between calls, allowing other tasks to emit log
+ * messages through the linenoiseHide / linenoiseShow hook safely.
+ *
+ * l->buf is used as the "is active" sentinel:
+ *   NULL  → no prompt on screen (linenoiseHide/Show are no-ops)
+ *   !NULL → prompt is drawn; Hide/Show operate normally
+ * ─────────────────────────────────────────────────────────────────────────── */
+
+int linenoiseEditStart(struct linenoiseState *l, char *buf, size_t buflen,
+                       const char *prompt)
+{
+    if (buflen == 0) return -1;
+
+    int out_fd = fileno(stdout);
+    int in_fd  = fileno(stdin);
+
+    /* Mark inactive while we initialise (keeps Hide/Show as no-ops until
+     * the prompt has actually been written to the terminal). */
+    l->buf = NULL;
+
+    l->buflen        = buflen - 1;  /* one byte reserved for the nul terminator */
+    l->prompt        = prompt;
+    l->plen          = strlen(prompt);
+    l->oldpos        = 0;
+    l->pos           = 0;
+    l->len           = 0;
+    l->cols          = getColumns();
+    l->maxrows       = 0;
+    l->history_index = 0;
+
+    /* Seed the history with an empty entry for the current line */
+    linenoiseHistoryAdd("");
+
+    /* Write the prompt before activating the state */
+    if (write(out_fd, prompt, l->plen) == -1) return -1;
+    flushWrite();
+
+    /* Recompute prompt length ignoring any embedded ANSI escape sequences */
+    l->plen = prompt_len_ignore_escape_seq(prompt);
+
+    /* Activate: set buf last so the log hook only sees a valid prompt once
+     * it has actually been drawn. */
+    buf[0] = '\0';
+    l->buf = buf;
+
+    /* Put stdin into non-blocking mode so linenoiseEditFeed returns
+     * linenoiseEditMore immediately when no data is available. */
+    int flags = fcntl(in_fd, F_GETFL);
+    (void)fcntl(in_fd, F_SETFL, flags | O_NONBLOCK);
+
+    return 0;
+}
+
+char *linenoiseEditFeed(struct linenoiseState *l)
+{
+    char c;
+    int  in_fd = fileno(stdin);
+
+    /* Non-blocking read of a single byte */
+    int nread = (int)read_func(in_fd, &c, 1);
+    if (nread <= 0) {
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            return linenoiseEditMore;  /* no data yet */
+        }
+        return NULL;  /* real EOF or error */
+    }
+
+    /* Tab completion requires an interactive read-back loop; temporarily
+     * restore blocking mode so completeLine doesn't spin on EAGAIN. */
+    if (c == TAB && completionCallback != NULL) {
+        int flags = fcntl(in_fd, F_GETFL);
+        (void)fcntl(in_fd, F_SETFL, flags & ~O_NONBLOCK);
+        int c2 = completeLine(l);
+        (void)fcntl(in_fd, F_SETFL, flags | O_NONBLOCK);
+        if (c2 < 0) return NULL;
+        if (c2 == 0) return linenoiseEditMore;
+        c = (char)c2;
+    }
+
+    switch (c) {
+    case ENTER: {
+        /* Remove the temporary empty history slot added by linenoiseEditStart */
+        history_len--;
+        free(history[history_len]);
+        if (mlmode) linenoiseEditMoveEnd(l);
+        /* Clear hint display before returning */
+        if (hintsCallback) {
+            linenoiseHintsCallback *hc = hintsCallback;
+            hintsCallback = NULL;
+            refreshLine(l);
+            hintsCallback = hc;
+        }
+        /* Return a heap-allocated copy; caller must linenoiseFree() it. */
+        return strdup(l->buf);
+    }
+    case CTRL_C:
+        errno = EAGAIN;
+        return NULL;
+    case BACKSPACE:
+    case CTRL_H:
+        linenoiseEditBackspace(l);
+        break;
+    case CTRL_D:
+        if (l->len > 0) {
+            linenoiseEditDelete(l);
+        } else {
+            history_len--;
+            free(history[history_len]);
+            return NULL;
+        }
+        break;
+    case CTRL_T:
+        if (l->pos > 0 && l->pos < l->len) {
+            char aux     = l->buf[l->pos - 1];
+            l->buf[l->pos - 1] = l->buf[l->pos];
+            l->buf[l->pos]     = aux;
+            if (l->pos != l->len - 1) l->pos++;
+            refreshLine(l);
+        }
+        break;
+    case CTRL_B:  linenoiseEditMoveLeft(l);  break;
+    case CTRL_F:  linenoiseEditMoveRight(l); break;
+    case CTRL_P:  linenoiseEditHistoryNext(l, LINENOISE_HISTORY_PREV); break;
+    case CTRL_N:  linenoiseEditHistoryNext(l, LINENOISE_HISTORY_NEXT); break;
+    case CTRL_U:
+        l->buf[0] = '\0';
+        l->pos = l->len = 0;
+        refreshLine(l);
+        break;
+    case CTRL_K:
+        l->buf[l->pos] = '\0';
+        l->len = l->pos;
+        refreshLine(l);
+        break;
+    case CTRL_A:  linenoiseEditMoveHome(l); break;
+    case CTRL_E:  linenoiseEditMoveEnd(l);  break;
+    case CTRL_L:
+        linenoiseClearScreen();
+        refreshLine(l);
+        break;
+    case CTRL_W:  linenoiseEditDeletePrevWord(l); break;
+    case ESC: {
+        /* Escape sequences arrive together from the terminal; the subsequent
+         * bytes are virtually always already in the UART FIFO so these
+         * blocking reads complete immediately even though stdin is O_NONBLOCK. */
+        char seq[3];
+        int r = (int)read_func(in_fd, seq, 1);
+        if (r != 1) break;
+        if (seq[0] == '[') {
+            r = (int)read_func(in_fd, seq + 1, 1);
+            if (r != 1) break;
+            if (seq[1] >= '0' && seq[1] <= '9') {
+                r = (int)read_func(in_fd, seq + 2, 1);
+                if (r != 1) break;
+                if (seq[2] == '~') {
+                    if (seq[1] == '3') linenoiseEditDelete(l);
+                }
+            } else {
+                switch (seq[1]) {
+                case 'A': linenoiseEditHistoryNext(l, LINENOISE_HISTORY_PREV); break;
+                case 'B': linenoiseEditHistoryNext(l, LINENOISE_HISTORY_NEXT); break;
+                case 'C': linenoiseEditMoveRight(l); break;
+                case 'D': linenoiseEditMoveLeft(l);  break;
+                case 'H': linenoiseEditMoveHome(l);  break;
+                case 'F': linenoiseEditMoveEnd(l);   break;
+                }
+            }
+        } else if (seq[0] == 'O') {
+            r = (int)read_func(in_fd, seq + 1, 1);
+            if (r != 1) break;
+            switch (seq[1]) {
+            case 'H': linenoiseEditMoveHome(l); break;
+            case 'F': linenoiseEditMoveEnd(l);  break;
+            }
+        }
+        break;
+    }
+    default:
+        if (linenoiseEditInsert(l, c) != 0) return NULL;
+        break;
+    }
+
+    flushWrite();
+    return linenoiseEditMore;
+}
+
+void linenoiseEditStop(struct linenoiseState *l)
+{
+    int in_fd = fileno(stdin);
+
+    /* Deactivate first so the log hook sees buf == NULL during teardown */
+    l->buf = NULL;
+
+    /* Restore stdin to blocking mode */
+    int flags = fcntl(in_fd, F_GETFL);
+    (void)fcntl(in_fd, F_SETFL, flags & ~O_NONBLOCK);
+
+    /* Advance the cursor past the completed command line */
+    fputc('\n', stdout);
+    flushWrite();
 }
 
 void linenoiseAllowEmpty(bool val) {

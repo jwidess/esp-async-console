@@ -55,7 +55,7 @@ typedef struct linenoiseCompletions {
 } linenoiseCompletions;
 
 typedef void(linenoiseCompletionCallback)(const char *, linenoiseCompletions *);
-typedef char*(linenoiseHintsCallback)(const char *, int *color, int *bold);
+typedef const char*(linenoiseHintsCallback)(const char *, int *color, int *bold);
 typedef void(linenoiseFreeHintsCallback)(void *);
 void linenoiseSetCompletionCallback(linenoiseCompletionCallback *);
 void linenoiseSetHintsCallback(linenoiseHintsCallback *);
@@ -81,6 +81,78 @@ int linenoiseSetMaxLineLen(size_t len);
 typedef ssize_t (*linenoise_read_bytes_fn)(int, void*, size_t);
 void linenoiseSetReadFunction(linenoise_read_bytes_fn read_fn);
 void linenoiseSetReadCharacteristics(void);
+
+/* ── Async API additions (project-local patch, IDF 5.5.0 base) ────────────
+ *
+ * linenoiseState is moved here from linenoise.c so that external modules
+ * (console_io.h) can declare / define instances of the struct without
+ * depending on linenoise.c internals.
+ *
+ * Upstream reference: antirez/linenoise linenoiseEditStart / Feed / Stop
+ * ──────────────────────────────────────────────────────────────────────── */
+
+struct linenoiseState {
+    char       *buf;           /* Edited line buffer.                        */
+    size_t      buflen;        /* Edited line buffer size.                   */
+    const char *prompt;        /* Prompt to display.                         */
+    size_t      plen;          /* Prompt length (visible chars, no escapes). */
+    size_t      pos;           /* Current cursor position.                   */
+    size_t      oldpos;        /* Previous refresh cursor position.          */
+    size_t      len;           /* Current edited line length.                */
+    size_t      cols;          /* Number of columns in terminal.             */
+    size_t      maxrows;       /* Max rows used so far (multiline mode).     */
+    int         history_index; /* History entry currently being edited.      */
+};
+
+/**
+ * Erase the prompt and current input line from the terminal so that async
+ * output (e.g. an ESP_LOG message) can be printed cleanly above it.
+ * No-op when the editing state is inactive (l->buf == NULL).
+ */
+void linenoiseHide(struct linenoiseState *l);
+
+/**
+ * Redraw the prompt and the user's partially-typed input after async output
+ * has been printed.
+ * No-op when the editing state is inactive (l->buf == NULL).
+ */
+void linenoiseShow(struct linenoiseState *l);
+
+/**
+ * Begin a new non-blocking edit session.
+ *
+ * Initialises *l, writes the prompt, adds an empty history slot, and puts
+ * stdin into O_NONBLOCK mode.  buf must remain valid until linenoiseEditStop.
+ *
+ * @return 0 on success, -1 on error.
+ */
+int linenoiseEditStart(struct linenoiseState *l, char *buf, size_t buflen,
+                       const char *prompt);
+
+/**
+ * Feed one character's worth of input to the editor.
+ *
+ * Call repeatedly (e.g. every 1 ms from a FreeRTOS task) until a value other
+ * than linenoiseEditMore is returned.
+ *
+ * @return linenoiseEditMore  No complete line yet — call again.
+ * @return NULL               CTRL+C / CTRL+D / error — call linenoiseEditStop.
+ * @return other char *       Heap-allocated completed line — call
+ *                            linenoiseEditStop, then linenoiseFree.
+ */
+char *linenoiseEditFeed(struct linenoiseState *l);
+
+/** Sentinel returned by linenoiseEditFeed when no complete line is ready. */
+#define linenoiseEditMore ((char *)-1)
+
+/**
+ * End the current edit session.
+ *
+ * Restores stdin to blocking mode, prints a newline, and marks the state
+ * inactive (l->buf = NULL) so that linenoiseHide/Show become no-ops until
+ * the next linenoiseEditStart.
+ */
+void linenoiseEditStop(struct linenoiseState *l);
 
 #ifdef __cplusplus
 }

@@ -26,12 +26,35 @@ static int cmd_echo(int argc, char **argv)
     return 0;
 }
 
+static int cmd_table(int argc, char **argv)
+{
+    printf("+-------+----------------------+-------+\n");
+    printf("| ID    | Sensor               | Value |\n");
+    printf("+-------+----------------------+-------+\n");
+    for (int i = 0; i < 20; i++) {
+        printf("| %-5d | Temperature Sensor %-2d | %-5.2f |\n", i, i, 20.0 + (i * 0.5));
+    }
+    printf("+-------+----------------------+-------+\n");
+    return 0;
+}
+
 static void background_log_task(void *arg)
 {
     int tick = 0;
     while (1) {
         ESP_LOGI("bg", "tick %d", tick++);
-        vTaskDelay(pdMS_TO_TICKS(2000));
+        
+        if (tick % 5 == 0) {
+            ESP_LOGI("bg_table", "\n"
+                     "+-------+----------------------+\n"
+                     "| ID    | Status               |\n"
+                     "+-------+----------------------+\n"
+                     "| 0     | OK                   |\n"
+                     "| 1     | WARNING              |\n"
+                     "| 2     | ERROR                |\n"
+                     "+-------+----------------------+");
+        }
+        vTaskDelay(pdMS_TO_TICKS(1000));
     }
 }
 
@@ -68,8 +91,17 @@ void app_main(void)
     };
     ESP_ERROR_CHECK(esp_console_cmd_register(&echo_cmd));
 
+    const esp_console_cmd_t table_cmd = {
+        .command = "table",
+        .help = "Print a large table of mock data",
+        .hint = NULL,
+        .func = &cmd_table,
+        .argtable = NULL
+    };
+    ESP_ERROR_CHECK(esp_console_cmd_register(&table_cmd));
+
     /* Start background task to test log interleaving */
     xTaskCreate(background_log_task, "bg_log", 2048, NULL, 5, NULL);
 
-    ESP_LOGI(TAG, "Initialization complete. Try typing 'hello' or 'echo 123'");
+    ESP_LOGI(TAG, "Initialization complete. Try typing 'hello', 'echo 123', or 'table'");
 }

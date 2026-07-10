@@ -1,0 +1,15 @@
+version: "0.1.0"
+description: >
+  Non-blocking async REPL console for ESP-IDF. Interleaves ESP_LOG messages
+  with the serial prompt without screen corruption. Based on the ESP-IDF
+  console component with an async linenoise state machine.
+url: "https://github.com/jwidess/esp-async-console"
+license: "Apache-2.0"
+targets:
+  - esp32
+  - esp32s2
+  - esp32s3
+  - esp32c3
+  - esp32c6
+dependencies:
+  idf: ">=6.0.0"

@@ -1,0 +1,3 @@
+dependencies:
+  jwidess/esp-async-console:
+    override_path: "../../"

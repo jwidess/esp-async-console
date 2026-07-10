@@ -7,7 +7,10 @@ set(srcs "commands.c"
          "esp_console_common.c"
          "esp_console_repl_internal.c"
          "split_argv.c"
-         "linenoise/linenoise.c")
+         "linenoise/linenoise.c"
+         "async_console_io.c"
+         "async_console_log.c"
+         "async_console.c")
 
 set(requires vfs)
 

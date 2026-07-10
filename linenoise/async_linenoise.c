@@ -253,8 +253,16 @@ __attribute__((weak)) void linenoiseSetReadCharacteristics(void)
 
 /* Use the ESC [6n escape sequence to query the horizontal cursor position
  * and return it. On error -1 is returned, on success the position of the
- * cursor. */
-#if 0
+ * cursor.
+ *
+ * Unlike stock linenoise this uses a usleep/retry loop instead of a blocking
+ * read. The ESP-IDF VFS UART driver can return EAGAIN immediately if no bytes
+ * are waiting in the FIFO, so a plain read() could race against the round trip
+ * time of the ANSI request to the terminal and back.
+ * We poll for up to GETCURSOR_TIMEOUT_MS at GETCURSOR_POLL_MS intervals to 
+ * give the terminal time to reply before giving up. */
+#define GETCURSOR_TIMEOUT_MS 500
+#define GETCURSOR_POLL_MS    10
 static int getCursorPosition(void) {
     char buf[LINENOISE_COMMAND_MAX_LEN] = { 0 };
     int cols = 0;
@@ -265,6 +273,12 @@ static int getCursorPosition(void) {
     /* The following ANSI escape sequence is used to get from the TTY the
      * cursor position. */
     const char get_cursor_cmd[] = "\x1b[6n";
+
+    /* Flush any pending input so we only read our query response */
+    char junk;
+    while (read_func(in_fd, &junk, 1) == 1) {
+        // drain
+    }
 
     /* Send the command to the TTY on the other end of the UART.
      * Let's use unistd's write function. Thus, data sent through it are raw
@@ -280,23 +294,32 @@ static int getCursorPosition(void) {
     /* The other end will send its response which format is ESC [ rows ; cols R
      * We don't know exactly how many bytes we have to read, thus, perform a
      * read for each byte.
-     * Stop right before the last character of the buffer, to be able to NULL
-     * terminate it. */
-    while (i < sizeof(buf)-1) {
-        /* Keep using unistd's functions. Here, using `read` instead of `fgets`
-         * or `fgets` guarantees us that we we can read a byte regardless on
-         * whether the sender sent end of line character(s) (CR, CRLF, LF). */
-        if (read_func(in_fd, buf + i, 1) != 1 || buf[i] == 'R') {
-            /* If we couldn't read a byte from STDIN or if 'R' was received,
-             * the transmission is finished. */
-            break;
+     *
+     * On embedded UART targets the response may not arrive immediately; poll
+     * with a short sleep between retries up to GETCURSOR_TIMEOUT_MS total. */
+    int timeout_ms = GETCURSOR_TIMEOUT_MS;
+    while (i < (int)(sizeof(buf) - 1)) {
+        char ch;
+        ssize_t n = read_func(in_fd, &ch, 1);
+        if (n < 0) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                // No data yet, sleep and retry if we have budget
+                if (timeout_ms <= 0) break;
+                usleep(GETCURSOR_POLL_MS * 1000);
+                timeout_ms -= GETCURSOR_POLL_MS;
+                continue;
+            }
+            break; // real error
         }
+        if (n == 0) break; // EOF
+
+        if (ch == 'R') break; // response terminator
 
         /* For some reasons, it is possible that we receive new line character
          * after querying the cursor position on some UART. Let's ignore them,
          * this will not affect the rest of the program. */
-        if (buf[i] != '\n') {
-            i++;
+        if (ch != '\n') {
+            buf[i++] = ch;
         }
     }
 
@@ -368,7 +391,6 @@ static int getColumns(void) {
 failed:
     return 80;
 }
-#endif
 
 /* Clear the screen. Used to handle ctrl+l */
 void linenoiseClearScreen(void) {
@@ -568,7 +590,7 @@ static void refreshSingleLine(struct linenoiseState *l) {
         len--;
         pos--;
     }
-    while (plen+len > l->cols) {
+    while (plen+len >= l->cols) {
         len--;
     }
 
@@ -698,18 +720,37 @@ static void refreshLine(struct linenoiseState *l) {
  * ─────────────────────────────────────────────────────────────────────────── */
 
 void linenoiseHide(struct linenoiseState *l) {
-    if (l == NULL || l->buf == NULL) return;  /* state inactive — no-op */
-    fprintf(stdout, "\r\033[0K");             /* CR + erase-to-end-of-line  */
+    if (l == NULL || l->buf == NULL) return;  /* state inactive - no-op */
+    if (mlmode) {
+        int rpos = (l->plen + l->pos + l->cols) / l->cols;
+        int old_rows = l->maxrows;
+        /* Go to the last row */
+        if (old_rows - rpos > 0) {
+            fprintf(stdout, "\x1b[%dB", old_rows - rpos);
+        }
+        /* Clear every row, go up */
+        for (int j = 0; j < old_rows - 1; j++) {
+            fprintf(stdout, "\r\x1b[0K\x1b[1A");
+        }
+        /* Clear the top row */
+        fprintf(stdout, "\r\x1b[0K");
+    } else {
+        fprintf(stdout, "\r\x1b[0K");             /* CR + erase-to-end-of-line  */
+    }
     flushWrite();
 }
 
 void linenoiseShow(struct linenoiseState *l) {
-    if (l == NULL || l->buf == NULL) return;  /* state inactive — no-op */
-    fwrite(l->prompt, 1, strlen(l->prompt), stdout);
-    if (l->len > 0) {
-        fwrite(l->buf, 1, l->len, stdout);
+    if (l == NULL || l->buf == NULL) return;  /* state inactive - no-op */
+    if (mlmode) {
+        /* Force a clean redraw from the top line downwards */
+        l->maxrows = 0;
+        l->oldpos = 0;
+        refreshMultiLine(l);
+    } else {
+        refreshSingleLine(l);
     }
-    flushWrite();
+    /* flushWrite is called inside the refresh functions */
 }
 
 /* Insert the character 'c' at cursor current position.
@@ -1143,7 +1184,7 @@ int linenoiseEditStart(struct linenoiseState *l, char *buf, size_t buflen,
     l->oldpos        = 0;
     l->pos           = 0;
     l->len           = 0;
-    l->cols          = 80; /* getColumns() disabled to prevent ANSI probe garbage */
+    l->cols          = getColumns(); /* probes terminal width; polls up to 500 ms */
     l->maxrows       = 0;
     l->history_index = 0;
 
@@ -1261,7 +1302,16 @@ char *linenoiseEditFeed(struct linenoiseState *l)
     case ESC: {
         /* Escape sequences arrive together from the terminal; the subsequent
          * bytes are virtually always already in the UART FIFO so these
-         * blocking reads complete immediately even though stdin is O_NONBLOCK. */
+         * blocking reads complete immediately even though stdin is O_NONBLOCK.
+         *
+         * "known" CSI sequences we handle:  ESC [ A/B/C/D/H/F  and  ESC [ n ~
+         * "known" SS3 sequences:            ESC O H/F
+         *
+         * Any other CSI sequence (e.g. the cursor-position report ESC [ r ; c R
+         * that getColumns() sends and then reads back synchronously) must be
+         * discarded here byte-by-byte until the CSI terminator (any byte in
+         * 0x40-0x7E) is consumed.  Without this drain the trailing bytes
+         * (e.g. ";80R") would appear in the prompt */
         char seq[3];
         int r = (int)read_func(in_fd, seq, 1);
         if (r != 1) break;
@@ -1269,12 +1319,24 @@ char *linenoiseEditFeed(struct linenoiseState *l)
             r = (int)read_func(in_fd, seq + 1, 1);
             if (r != 1) break;
             if (seq[1] >= '0' && seq[1] <= '9') {
+                /* ESC [ digit ... read one more byte */
                 r = (int)read_func(in_fd, seq + 2, 1);
                 if (r != 1) break;
                 if (seq[2] == '~') {
+                    /* ESC [ n ~ only Delete (3~) handled */
                     if (seq[1] == '3') linenoiseEditDelete(l);
+                } else if (seq[2] >= 0x40 && seq[2] <= 0x7E) {
+                    /* Single extra-byte CSI terminator, already consumed, ignore */
+                } else {
+                    /* Multi-parameter sequence (e.g. ESC [ 24 ; 80 R).
+                     * seq[2] is not a terminator; drain until we hit one. */
+                    char drain = seq[2];
+                    while (drain < 0x40 || drain > 0x7E) {
+                        if ((int)read_func(in_fd, &drain, 1) != 1) break;
+                    }
                 }
-            } else {
+            } else if (seq[1] >= 0x40 && seq[1] <= 0x7E) {
+                /* Single-byte CSI final: handle known ones */
                 switch (seq[1]) {
                 case 'A': linenoiseEditHistoryNext(l, LINENOISE_HISTORY_PREV); break;
                 case 'B': linenoiseEditHistoryNext(l, LINENOISE_HISTORY_NEXT); break;
@@ -1282,6 +1344,13 @@ char *linenoiseEditFeed(struct linenoiseState *l)
                 case 'D': linenoiseEditMoveLeft(l);  break;
                 case 'H': linenoiseEditMoveHome(l);  break;
                 case 'F': linenoiseEditMoveEnd(l);   break;
+                /* Unknown single-byte terminator: already consumed, silently ignored */
+                }
+            } else {
+                /* seq[1] is an intermediate byte; drain until final byte */
+                char drain = seq[1];
+                while (drain < 0x40 || drain > 0x7E) {
+                    if ((int)read_func(in_fd, &drain, 1) != 1) break;
                 }
             }
         } else if (seq[0] == 'O') {
@@ -1292,6 +1361,8 @@ char *linenoiseEditFeed(struct linenoiseState *l)
             case 'F': linenoiseEditMoveEnd(l);  break;
             }
         }
+        /* Any other ESC + byte combination (bare ESC, Alt+key, etc.) is
+         * silently ignored, seq[0] has already been consumed. */
         break;
     }
     default:

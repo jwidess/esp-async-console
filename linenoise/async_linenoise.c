@@ -254,6 +254,7 @@ __attribute__((weak)) void linenoiseSetReadCharacteristics(void)
 /* Use the ESC [6n escape sequence to query the horizontal cursor position
  * and return it. On error -1 is returned, on success the position of the
  * cursor. */
+#if 0
 static int getCursorPosition(void) {
     char buf[LINENOISE_COMMAND_MAX_LEN] = { 0 };
     int cols = 0;
@@ -367,6 +368,7 @@ static int getColumns(void) {
 failed:
     return 80;
 }
+#endif
 
 /* Clear the screen. Used to handle ctrl+l */
 void linenoiseClearScreen(void) {
@@ -900,7 +902,7 @@ static int linenoiseEdit(char *buf, size_t buflen, const char *prompt)
     l.plen = strlen(prompt);
     l.oldpos = l.pos = 0;
     l.len = 0;
-    l.cols = getColumns();
+    l.cols = 80; /* getColumns() disabled to prevent ANSI probe garbage */
     l.maxrows = 0;
     l.history_index = 0;
 
@@ -1141,7 +1143,7 @@ int linenoiseEditStart(struct linenoiseState *l, char *buf, size_t buflen,
     l->oldpos        = 0;
     l->pos           = 0;
     l->len           = 0;
-    l->cols          = getColumns();
+    l->cols          = 80; /* getColumns() disabled to prevent ANSI probe garbage */
     l->maxrows       = 0;
     l->history_index = 0;
 

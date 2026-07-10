@@ -688,7 +688,7 @@ static void refreshLine(struct linenoiseState *l) {
         refreshSingleLine(l);
 }
 
-/* ── Async API: linenoiseHide / async_linenoise.how ───────────────────────────────
+/* ── Async API: linenoiseHide / linenoiseShow ───────────────────────────────
  *
  * These allow a FreeRTOS task (e.g. the ESP_LOG vprintf hook) to atomically
  * erase the prompt line, print a log message, and restore the prompt without
@@ -701,7 +701,7 @@ void linenoiseHide(struct linenoiseState *l) {
     flushWrite();
 }
 
-void async_linenoise.how(struct linenoiseState *l) {
+void linenoiseShow(struct linenoiseState *l) {
     if (l == NULL || l->buf == NULL) return;  /* state inactive — no-op */
     fwrite(l->prompt, 1, strlen(l->prompt), stdout);
     if (l->len > 0) {
@@ -792,8 +792,8 @@ void linenoiseEditMoveEnd(struct linenoiseState *l) {
 
 /* Substitute the currently edited line with the next or previous history
  * entry as specified by 'dir'. */
-#define async_linenoise.hISTORY_NEXT 0
-#define async_linenoise.hISTORY_PREV 1
+#define LINENOISE_HISTORY_NEXT 0
+#define LINENOISE_HISTORY_PREV 1
 void linenoiseEditHistoryNext(struct linenoiseState *l, int dir) {
     if (history_len > 1) {
         /* Update the current history entry before to
@@ -801,7 +801,7 @@ void linenoiseEditHistoryNext(struct linenoiseState *l, int dir) {
         free(history[history_len - 1 - l->history_index]);
         history[history_len - 1 - l->history_index] = strdup(l->buf);
         /* Show the new entry */
-        l->history_index += (dir == async_linenoise.hISTORY_PREV) ? 1 : -1;
+        l->history_index += (dir == LINENOISE_HISTORY_PREV) ? 1 : -1;
         if (l->history_index < 0) {
             l->history_index = 0;
             return;
@@ -1009,10 +1009,10 @@ static int linenoiseEdit(char *buf, size_t buflen, const char *prompt)
             linenoiseEditMoveRight(&l);
             break;
         case CTRL_P:    /* ctrl-p */
-            linenoiseEditHistoryNext(&l, async_linenoise.hISTORY_PREV);
+            linenoiseEditHistoryNext(&l, LINENOISE_HISTORY_PREV);
             break;
         case CTRL_N:    /* ctrl-n */
-            linenoiseEditHistoryNext(&l, async_linenoise.hISTORY_NEXT);
+            linenoiseEditHistoryNext(&l, LINENOISE_HISTORY_NEXT);
             break;
         case CTRL_U: /* Ctrl+u, delete the whole line. */
             buf[0] = '\0';
@@ -1065,10 +1065,10 @@ static int linenoiseEdit(char *buf, size_t buflen, const char *prompt)
                 } else {
                     switch(seq[1]) {
                     case 'A': /* Up */
-                        linenoiseEditHistoryNext(&l, async_linenoise.hISTORY_PREV);
+                        linenoiseEditHistoryNext(&l, LINENOISE_HISTORY_PREV);
                         break;
                     case 'B': /* Down */
-                        linenoiseEditHistoryNext(&l, async_linenoise.hISTORY_NEXT);
+                        linenoiseEditHistoryNext(&l, LINENOISE_HISTORY_NEXT);
                         break;
                     case 'C': /* Right */
                         linenoiseEditMoveRight(&l);
@@ -1116,7 +1116,7 @@ static int linenoiseEdit(char *buf, size_t buflen, const char *prompt)
  * Non-blocking equivalent of linenoiseEdit / linenoiseRaw.
  * Designed to be driven from a FreeRTOS task that calls linenoiseEditFeed
  * every ~1 ms and yields between calls, allowing other tasks to emit log
- * messages through the linenoiseHide / async_linenoise.how hook safely.
+ * messages through the linenoiseHide / linenoiseShow hook safely.
  *
  * l->buf is used as the "is active" sentinel:
  *   NULL  → no prompt on screen (linenoiseHide/Show are no-ops)
@@ -1237,8 +1237,8 @@ char *linenoiseEditFeed(struct linenoiseState *l)
         break;
     case CTRL_B:  linenoiseEditMoveLeft(l);  break;
     case CTRL_F:  linenoiseEditMoveRight(l); break;
-    case CTRL_P:  linenoiseEditHistoryNext(l, async_linenoise.hISTORY_PREV); break;
-    case CTRL_N:  linenoiseEditHistoryNext(l, async_linenoise.hISTORY_NEXT); break;
+    case CTRL_P:  linenoiseEditHistoryNext(l, LINENOISE_HISTORY_PREV); break;
+    case CTRL_N:  linenoiseEditHistoryNext(l, LINENOISE_HISTORY_NEXT); break;
     case CTRL_U:
         l->buf[0] = '\0';
         l->pos = l->len = 0;
@@ -1274,8 +1274,8 @@ char *linenoiseEditFeed(struct linenoiseState *l)
                 }
             } else {
                 switch (seq[1]) {
-                case 'A': linenoiseEditHistoryNext(l, async_linenoise.hISTORY_PREV); break;
-                case 'B': linenoiseEditHistoryNext(l, async_linenoise.hISTORY_NEXT); break;
+                case 'A': linenoiseEditHistoryNext(l, LINENOISE_HISTORY_PREV); break;
+                case 'B': linenoiseEditHistoryNext(l, LINENOISE_HISTORY_NEXT); break;
                 case 'C': linenoiseEditMoveRight(l); break;
                 case 'D': linenoiseEditMoveLeft(l);  break;
                 case 'H': linenoiseEditMoveHome(l);  break;
@@ -1483,7 +1483,7 @@ void linenoiseHistoryFree(void) {
     history_len = 0;
 }
 
-/* This is the API call to add a new entry in the async_linenoise.history.
+/* This is the API call to add a new entry in the linenoise history.
  * It uses a fixed array of char pointers that are shifted (memmoved)
  * when the history max length is reached in order to remove the older
  * entry and make room for the new one, so it is not exactly suitable for huge

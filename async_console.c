@@ -15,7 +15,7 @@
 #include "esp_log.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
-#include "linenoise/linenoise.h"
+#include "linenoise/async_linenoise.h"
 
 static const char *TAG = "async_console";
 static char s_prompt[64];

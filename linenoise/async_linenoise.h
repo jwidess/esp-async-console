@@ -91,6 +91,45 @@ void linenoiseSetReadCharacteristics(void);
  * Upstream reference: antirez/linenoise linenoiseEditStart / Feed / Stop
  * ──────────────────────────────────────────────────────────────────────── */
 
+/* ── Rename all linenoise symbols to avoid ESP-IDF linker collisions ───── */
+#define getMillis async_linenoise_getMillis
+#define linenoise async_linenoise
+#define linenoiseAddCompletion async_linenoiseAddCompletion
+#define linenoiseAllowEmpty async_linenoiseAllowEmpty
+#define linenoiseClearScreen async_linenoiseClearScreen
+#define linenoiseEditBackspace async_linenoiseEditBackspace
+#define linenoiseEditDelete async_linenoiseEditDelete
+#define linenoiseEditDeletePrevWord async_linenoiseEditDeletePrevWord
+#define linenoiseEditFeed async_linenoiseEditFeed
+#define linenoiseEditHistoryNext async_linenoiseEditHistoryNext
+#define linenoiseEditInsert async_linenoiseEditInsert
+#define linenoiseEditMoveEnd async_linenoiseEditMoveEnd
+#define linenoiseEditMoveHome async_linenoiseEditMoveHome
+#define linenoiseEditMoveLeft async_linenoiseEditMoveLeft
+#define linenoiseEditMoveRight async_linenoiseEditMoveRight
+#define linenoiseEditStart async_linenoiseEditStart
+#define linenoiseEditStop async_linenoiseEditStop
+#define linenoiseFree async_linenoiseFree
+#define linenoiseHide async_linenoiseHide
+#define linenoiseHistoryAdd async_linenoiseHistoryAdd
+#define linenoiseHistoryFree async_linenoiseHistoryFree
+#define linenoiseHistoryLoad async_linenoiseHistoryLoad
+#define linenoiseHistorySave async_linenoiseHistorySave
+#define linenoiseHistorySetMaxLen async_linenoiseHistorySetMaxLen
+#define linenoiseInsertPastedChar async_linenoiseInsertPastedChar
+#define linenoiseIsDumbMode async_linenoiseIsDumbMode
+#define linenoiseProbe async_linenoiseProbe
+#define linenoiseSetCompletionCallback async_linenoiseSetCompletionCallback
+#define linenoiseSetDumbMode async_linenoiseSetDumbMode
+#define linenoiseSetFreeHintsCallback async_linenoiseSetFreeHintsCallback
+#define linenoiseSetHintsCallback async_linenoiseSetHintsCallback
+#define linenoiseSetMaxLineLen async_linenoiseSetMaxLineLen
+#define linenoiseSetMultiLine async_linenoiseSetMultiLine
+#define linenoiseSetReadCharacteristics async_linenoiseSetReadCharacteristics
+#define linenoiseSetReadFunction async_linenoiseSetReadFunction
+#define linenoiseShow async_linenoiseShow
+#define refreshShowHints async_linenoise_refreshShowHints
+
 struct linenoiseState {
     char       *buf;           /* Edited line buffer.                        */
     size_t      buflen;        /* Edited line buffer size.                   */

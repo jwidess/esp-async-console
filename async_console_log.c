@@ -5,7 +5,7 @@
 
 #include "async_console_io.h"
 #include "esp_log.h"
-#include "linenoise/linenoise.h"
+#include "linenoise/async_linenoise.h"
 
 static int async_console_log_vprintf(const char *fmt, va_list args) {
     static char s_log_buf[1024];

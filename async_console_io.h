@@ -2,7 +2,7 @@
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
-#include "linenoise/linenoise.h"
+#include "linenoise/async_linenoise.h"
 
 #define ASYNC_CONSOLE_LINE_BUF_LEN 256
 

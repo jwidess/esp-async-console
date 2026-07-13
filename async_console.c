@@ -44,6 +44,10 @@ static void console_repl_task(void *arg) {
 
   vTaskDelay(pdMS_TO_TICKS(100));
 
+  /* Start in smart mode by default. The user can manually downgrade to
+   * dumb mode if their terminal does not support ANSI escape sequences. */
+  linenoiseSetDumbMode(0);
+
   repl_edit_start();
 
   while (1) {

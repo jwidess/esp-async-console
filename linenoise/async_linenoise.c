@@ -150,6 +150,11 @@ static int history_max_len = LINENOISE_DEFAULT_HISTORY_MAX_LEN;
 static int history_len = 0;
 static char **history = NULL;
 static bool allow_empty = true;
+static bool debug_mode = false;
+
+void esp_console_set_debug_mode(bool enable) {
+    debug_mode = enable;
+}
 
 /* linenoiseState is now defined in async_linenoise.h (project-local async API patch)
  * so that external modules can declare instances of the struct directly.
@@ -180,6 +185,7 @@ enum KEY_ACTION{
 
 int linenoiseHistoryAdd(const char *line);
 static void refreshLine(struct linenoiseState *l);
+static long long get_current_time_ms(void);
 
 /* Debugging macro. */
 #if 0
@@ -251,7 +257,10 @@ __attribute__((weak)) void linenoiseSetReadCharacteristics(void)
     linenoiseSetReadFunction(read);
 }
 
-/* Use the ESC [6n escape sequence to query the horizontal cursor position
+#define GETCURSOR_TIMEOUT_MS 200
+#define GETCURSOR_POLL_MS    10
+/* 
+ * Use the ESC [6n escape sequence to query the horizontal cursor position
  * and return it. On error -1 is returned, on success the position of the
  * cursor.
  *
@@ -260,9 +269,11 @@ __attribute__((weak)) void linenoiseSetReadCharacteristics(void)
  * are waiting in the FIFO, so a plain read() could race against the round trip
  * time of the ANSI request to the terminal and back.
  * We poll for up to GETCURSOR_TIMEOUT_MS at GETCURSOR_POLL_MS intervals to 
- * give the terminal time to reply before giving up. */
-#define GETCURSOR_TIMEOUT_MS 500
-#define GETCURSOR_POLL_MS    10
+ * give the terminal time to reply before giving up. 
+ * 
+ * GETCURSOR_TIMEOUT_MS: At worse case 9600 baud this takes ~90ms in TeraTerm and 
+ * with the ESP-IDF Monitor and PR #43 merged, typically between 120-190ms.
+ */
 static int getCursorPosition(void) {
     char buf[LINENOISE_COMMAND_MAX_LEN] = { 0 };
     int cols = 0;
@@ -283,8 +294,8 @@ static int getCursorPosition(void) {
     /* Send the command to the TTY on the other end of the UART.
      * Let's use unistd's write function. Thus, data sent through it are raw
      * reducing the overhead compared to using fputs, fprintf, etc... */
-    int num_written = write(out_fd, get_cursor_cmd, sizeof(get_cursor_cmd));
-    if (num_written != sizeof(get_cursor_cmd)) {
+    int num_written = write(out_fd, get_cursor_cmd, sizeof(get_cursor_cmd) - 1);
+    if (num_written != sizeof(get_cursor_cmd) - 1) {
         return -1;
     }
 
@@ -296,31 +307,47 @@ static int getCursorPosition(void) {
      * read for each byte.
      *
      * On embedded UART targets the response may not arrive immediately; poll
-     * with a short sleep between retries up to GETCURSOR_TIMEOUT_MS total. */
+     * with a short sleep between retries. */
+    long long start_time = get_current_time_ms();
     int timeout_ms = GETCURSOR_TIMEOUT_MS;
+    
     while (i < (int)(sizeof(buf) - 1)) {
         char ch;
         ssize_t n = read_func(in_fd, &ch, 1);
         if (n < 0) {
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                // No data yet, sleep and retry if we have budget
-                if (timeout_ms <= 0) break;
-                usleep(GETCURSOR_POLL_MS * 1000);
-                timeout_ms -= GETCURSOR_POLL_MS;
+                // No data yet, check absolute timeout
+                if ((get_current_time_ms() - start_time) >= timeout_ms) break;
+                
+                /* Sleep briefly so we don't spin too hot. */
+                usleep(2000); 
                 continue;
             }
             break; // real error
         }
         if (n == 0) break; // EOF
 
+        // Ignore leading garbage until the ESC character that starts the response sequence.
+        if (i == 0 && ch != ESC) {
+            if (debug_mode) {
+                printf("\n[DEBUG] getCursorPosition dropped garbage byte: 0x%02X '%c'\n", 
+                    (unsigned char)ch, (ch >= 32 && ch <= 126) ? ch : '.');
+            }
+            continue;
+        }
+
         if (ch == 'R') break; // response terminator
 
-        /* For some reasons, it is possible that we receive new line character
-         * after querying the cursor position on some UART. Let's ignore them,
-         * this will not affect the rest of the program. */
-        if (ch != '\n') {
-            buf[i++] = ch;
+        // Ignore interleaved bytes (like \n from held Enter or other typed keys) in the middle of a CPR
+        if (i > 0 && ch != '[' && ch != ';' && (ch < '0' || ch > '9')) {
+             if (debug_mode) {
+                printf("\n[DEBUG] getCursorPosition dropped interleaved byte: 0x%02X '%c'\n", 
+                    (unsigned char)ch, (ch >= 32 && ch <= 126) ? ch : '.');
+            }
+            continue;
         }
+
+        buf[i++] = ch;
     }
 
     /* NULL-terminate the buffer, this is required by `sscanf`. */
@@ -334,8 +361,21 @@ static int getCursorPosition(void) {
 }
 
 /* Try to get the number of columns in the current terminal, or assume 80
- * if it fails. */
+ * if it fails. Cache the value to prevent lag on every prompt. */
+static int cached_cols = 80;
+static bool force_refresh_cols = true;
+static long long last_probe_time = 0;
+
 static int getColumns(void) {
+    long long now = get_current_time_ms();
+    
+    // Only query if force_refresh_cols is true
+    if (!force_refresh_cols) {
+        return dumbmode ? 80 : cached_cols;
+    }
+    last_probe_time = now;
+    
+    long long start_time = get_current_time_ms();
     int start = 0;
     int cols = 0;
     int written = 0;
@@ -345,20 +385,32 @@ static int getColumns(void) {
     /* The following ANSI escape sequence is used to tell the TTY to move
      * the cursor to the most-right position. */
     const char move_cursor_right[] = "\x1b[999C";
-    const size_t cmd_len = sizeof(move_cursor_right);
+    const size_t cmd_len = sizeof(move_cursor_right) - 1;
 
     /* This one is used to set the cursor position. */
     const char set_cursor_pos[] = "\x1b[%dD";
 
+    // Temp disable dumbmode for query sequences
+    int orig_dumbmode = dumbmode;
+    dumbmode = 0;
+
     /* Get the initial position so we can restore it later. */
     start = getCursorPosition();
-    if (start == -1) {
+    if (start <= 0) {
+        if (debug_mode) {
+            long long elapsed = get_current_time_ms() - start_time;
+            printf("\n[DEBUG] getColumns failed to get cursor start position after %lld ms. Falling back to dumb mode.\n", elapsed);
+        }
+        dumbmode = 1;
+        force_refresh_cols = false;
         goto failed;
     }
 
     /* Send the command to go to right margin. Use `write` function instead of
      * `fwrite` for the same reasons explained in `getCursorPosition()` */
     if (write(fd, move_cursor_right, cmd_len) != cmd_len) {
+        dumbmode = 1;
+        force_refresh_cols = false;
         goto failed;
     }
     flushWrite();
@@ -366,7 +418,13 @@ static int getColumns(void) {
     /* After sending this command, we can get the new position of the cursor,
      * we'd get the size, in columns, of the opened TTY. */
     cols = getCursorPosition();
-    if (cols == -1) {
+    if (cols < 10) {
+        if (debug_mode) {
+            long long elapsed = get_current_time_ms() - start_time;
+            printf("\n[DEBUG] getColumns failed/returned invalid width %d after %lld ms. Falling back to dumb mode.\n", cols, elapsed);
+        }
+        dumbmode = 1;
+        force_refresh_cols = false;
         goto failed;
     }
 
@@ -386,9 +444,19 @@ static int getColumns(void) {
         }
         flushWrite();
     }
+
+    if (debug_mode) {
+        long long elapsed = get_current_time_ms() - start_time;
+        printf("\n[DEBUG] getColumns succeeded in %lld ms (columns: %d). Setting smart mode.\n", elapsed, cols);
+    }
+    dumbmode = 0;
+    cached_cols = cols;
+    force_refresh_cols = false;
     return cols;
 
 failed:
+    dumbmode = 1;
+    force_refresh_cols = false;
     return 80;
 }
 
@@ -592,7 +660,7 @@ static void refreshSingleLine(struct linenoiseState *l) {
     size_t pos = l->pos;
     struct abuf ab;
 
-    while((plen+pos) >= l->cols) {
+    while(pos > 0 && (plen+pos) >= l->cols) {
         buf++;
         len--;
         pos--;
@@ -728,6 +796,8 @@ static void refreshLine(struct linenoiseState *l) {
 
 void linenoiseHide(struct linenoiseState *l) {
     if (l == NULL || l->buf == NULL) return;  /* state inactive - no-op */
+    /* In dumb mode there are no ANSI sequences on screen to erase. */
+    if (dumbmode) return;
     if (mlmode) {
         int rpos = (l->plen + l->pos + l->cols) / l->cols;
         int old_rows = l->maxrows;
@@ -749,6 +819,8 @@ void linenoiseHide(struct linenoiseState *l) {
 
 void linenoiseShow(struct linenoiseState *l) {
     if (l == NULL || l->buf == NULL) return;  /* state inactive - no-op */
+    /* In dumb mode the prompt was never erased, nothing to restore. */
+    if (dumbmode) return;
     if (mlmode) {
         /* Force a clean redraw from the top line downwards */
         l->maxrows = 0;
@@ -1173,6 +1245,14 @@ static int linenoiseEdit(char *buf, size_t buflen, const char *prompt)
  *   !NULL → prompt is drawn; Hide/Show operate normally
  * ─────────────────────────────────────────────────────────────────────────── */
 
+static long long get_current_time_ms(void) {
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    return (long long)tv.tv_sec * 1000 + tv.tv_usec / 1000;
+}
+
+static long long last_rx_time = 0;
+
 int linenoiseEditStart(struct linenoiseState *l, char *buf, size_t buflen,
                        const char *prompt)
 {
@@ -1191,16 +1271,23 @@ int linenoiseEditStart(struct linenoiseState *l, char *buf, size_t buflen,
     l->oldpos        = 0;
     l->pos           = 0;
     l->len           = 0;
-    l->cols          = getColumns(); /* probes terminal width; polls up to 500 ms */
+    l->cols          = getColumns(); /* probes terminal; auto-sets dumbmode if no response */
     l->maxrows       = 0;
     l->history_index = 0;
 
     /* Seed the history with an empty entry for the current line */
     linenoiseHistoryAdd("");
 
-    /* Write the prompt before activating the state */
-    if (write(out_fd, prompt, l->plen) == -1) return -1;
-    flushWrite();
+
+    if (dumbmode) {
+        /* In dumb mode, we just print the prompt and wait for characters */
+        if (write(out_fd, prompt, l->plen) == -1) return -1;
+        flushWrite();
+    } else {
+        /* Write the prompt before activating the state */
+        if (write(out_fd, prompt, l->plen) == -1) return -1;
+        flushWrite();
+    }
 
     /* Recompute prompt length ignoring any embedded ANSI escape sequences */
     l->plen = prompt_len_ignore_escape_seq(prompt);
@@ -1222,14 +1309,74 @@ char *linenoiseEditFeed(struct linenoiseState *l)
 {
     char c;
     int  in_fd = fileno(stdin);
+    long long now = get_current_time_ms();
 
     /* Non-blocking read of a single byte */
     int nread = (int)read_func(in_fd, &c, 1);
     if (nread <= 0) {
+
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
             return linenoiseEditMore;  /* no data yet */
         }
         return NULL;  /* real EOF or error */
+    }
+
+    if (debug_mode) {
+        if (c >= 32 && c <= 126) printf("\n[DEBUG] RX: '%c' (0x%02X)\n", c, c);
+        else printf("\n[DEBUG] RX: (0x%02X)\n", c);
+        /* Redraw the line because we just messed up the display with a debug print */
+        if (dumbmode) {
+            fputs(l->prompt, stdout);
+            fputs(l->buf, stdout);
+            flushWrite();
+        } else {
+            linenoiseShow(l);
+        }
+    }
+
+    last_rx_time = now;
+
+    /* ── Dumb fast path ────────────────────────────────────────────
+     * If no ANSI response was received during the probe, use simple echo-only
+     * editing: printable chars are appended and echoed, backspace removes the
+     * last char, CR/LF submits the line. No escape sequences. */
+    if (dumbmode) {
+        if (c == '\r') {
+            /* Discard CR — CRLF senders will follow immediately with \n which
+             * will submit the line.  Treating \r as a submit would cause a
+             * spurious empty-command on the next prompt. */
+            return linenoiseEditMore;
+        } else if (c == '\n') {
+            if (l->buf[0] == '\0') {
+                force_refresh_cols = true;
+            }
+            if (debug_mode) printf("\n[DEBUG] Line submitted in dumb mode.\n");
+            fputc('\n', stdout);
+            flushWrite();
+            history_len--;
+            free(history[history_len]);
+            return strdup(l->buf);
+        } else if (c == BACKSPACE || c == CTRL_H) {
+            if (l->len > 0) {
+                l->len--;
+                l->pos--;
+                l->buf[l->len] = '\0';
+                fputs("\b \b", stdout);
+                flushWrite();
+            }
+        } else if (c == ESC) {
+            return linenoiseEditMore;
+        } else if (c >= 0x20 && c < 0x7f) { /* printable ASCII */
+            if (l->len < l->buflen) {
+                l->buf[l->len++] = c;
+                l->buf[l->len]   = '\0';
+                l->pos++;
+                fputc(c, stdout);
+                flushWrite();
+            }
+        }
+        /* Discard all other control/escape bytes silently */
+        return linenoiseEditMore;
     }
 
     /* Tab completion requires an interactive read-back loop; temporarily
@@ -1246,6 +1393,9 @@ char *linenoiseEditFeed(struct linenoiseState *l)
 
     switch (c) {
     case ENTER: {
+        if (l->buf[0] == '\0') {
+            force_refresh_cols = true;
+        }
         /* Remove the temporary empty history slot added by linenoiseEditStart */
         history_len--;
         free(history[history_len]);
@@ -1325,8 +1475,8 @@ char *linenoiseEditFeed(struct linenoiseState *l)
         if (seq[0] == '[') {
             r = (int)read_func(in_fd, seq + 1, 1);
             if (r != 1) break;
-            if (seq[1] >= '0' && seq[1] <= '9') {
-                /* ESC [ digit ... read one more byte */
+            if ((seq[1] >= '0' && seq[1] <= '9') || seq[1] == '?') {
+                /* ESC [ digit (or ?) ... read one more byte */
                 r = (int)read_func(in_fd, seq + 2, 1);
                 if (r != 1) break;
                 if (seq[2] == '~') {
@@ -1334,12 +1484,18 @@ char *linenoiseEditFeed(struct linenoiseState *l)
                     if (seq[1] == '3') linenoiseEditDelete(l);
                 } else if (seq[2] >= 0x40 && seq[2] <= 0x7E) {
                     /* Single extra-byte CSI terminator, already consumed, ignore */
+                    if (((seq[1] == '0' || seq[1] == '3') && seq[2] == 'n') || seq[2] == 'R' || seq[2] == 'c') {
+
+                    }
                 } else {
                     /* Multi-parameter sequence (e.g. ESC [ 24 ; 80 R).
                      * seq[2] is not a terminator; drain until we hit one. */
                     char drain = seq[2];
                     while (drain < 0x40 || drain > 0x7E) {
                         if ((int)read_func(in_fd, &drain, 1) != 1) break;
+                    }
+                    if (drain == 'R' || drain == 'n' || drain == 'c') {
+
                     }
                 }
             } else if (seq[1] >= 0x40 && seq[1] <= 0x7E) {

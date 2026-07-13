@@ -8,6 +8,10 @@
 #include "nvs_flash.h"
 #include "driver/uart.h"
 #include "async_console.h"
+#include "linenoise/async_linenoise.h"
+
+#define BG_LOG_TASK_DELAY_MS 3000
+#define BG_LOG_TABLE_INTERVAL 10
 
 static const char *TAG = "main";
 
@@ -38,13 +42,65 @@ static int cmd_table(int argc, char **argv)
     return 0;
 }
 
+static int cmd_dumbmode(int argc, char **argv)
+{
+    if (argc > 1) {
+        if (strcmp(argv[1], "on") == 0 || strcmp(argv[1], "1") == 0) {
+            linenoiseSetDumbMode(1);
+            printf("Dumb mode enabled.\n");
+        } else if (strcmp(argv[1], "off") == 0 || strcmp(argv[1], "0") == 0) {
+            linenoiseSetDumbMode(0);
+            printf("Dumb mode disabled.\n");
+        } else {
+            printf("Usage: dumbmode [on|off]\n");
+        }
+    } else {
+        /* Toggle */
+        int current = linenoiseIsDumbMode();
+        linenoiseSetDumbMode(!current);
+        printf("Dumb mode %s.\n", !current ? "enabled" : "disabled");
+    }
+    return 0;
+}
+
+static bool current_debug_mode = true;
+static int cmd_debugmode(int argc, char **argv)
+{
+    if (argc > 1) {
+        if (strcmp(argv[1], "on") == 0 || strcmp(argv[1], "1") == 0) {
+            current_debug_mode = true;
+            esp_console_set_debug_mode(true);
+            printf("Debug mode enabled.\n");
+        } else if (strcmp(argv[1], "off") == 0 || strcmp(argv[1], "0") == 0) {
+            current_debug_mode = false;
+            esp_console_set_debug_mode(false);
+            printf("Debug mode disabled.\n");
+        } else {
+            printf("Usage: debugmode [on|off]\n");
+        }
+    } else {
+        /* Toggle */
+        current_debug_mode = !current_debug_mode;
+        esp_console_set_debug_mode(current_debug_mode);
+        printf("Debug mode %s.\n", current_debug_mode ? "enabled" : "disabled");
+    }
+    return 0;
+}
+
+static int cmd_reboot(int argc, char **argv)
+{
+    printf("Rebooting...\n");
+    esp_restart();
+    return 0;
+}
+
 static void background_log_task(void *arg)
 {
     int tick = 0;
     while (1) {
         ESP_LOGI("bg", "tick %d", tick++);
         
-        if (tick % 5 == 0) {
+        if (tick % BG_LOG_TABLE_INTERVAL == 0) {
             ESP_LOGI("bg_table", "\n"
                      "+-------+----------------------+\n"
                      "| ID    | Status               |\n"
@@ -54,7 +110,7 @@ static void background_log_task(void *arg)
                      "| 2     | ERROR                |\n"
                      "+-------+----------------------+");
         }
-        vTaskDelay(pdMS_TO_TICKS(1000));
+        vTaskDelay(pdMS_TO_TICKS(BG_LOG_TASK_DELAY_MS));
     }
 }
 
@@ -70,7 +126,9 @@ void app_main(void)
     ESP_ERROR_CHECK(err);
 
     /* Initialize the async console */
-    ESP_ERROR_CHECK(async_console_init(UART_NUM_0, 115200, "esp32> "));
+    ESP_ERROR_CHECK(async_console_init(UART_NUM_0, CONFIG_ESP_CONSOLE_UART_BAUDRATE, "esp32> "));
+
+    //esp_console_set_debug_mode(true); // Enable debug mode by default
 
     /* Register test commands */
     const esp_console_cmd_t hello_cmd = {
@@ -99,6 +157,33 @@ void app_main(void)
         .argtable = NULL
     };
     ESP_ERROR_CHECK(esp_console_cmd_register(&table_cmd));
+
+    const esp_console_cmd_t dumbmode_cmd = {
+        .command = "dumbmode",
+        .help = "Toggle dumb terminal mode (or 'dumbmode on/off')",
+        .hint = "[on|off]",
+        .func = &cmd_dumbmode,
+        .argtable = NULL
+    };
+    ESP_ERROR_CHECK(esp_console_cmd_register(&dumbmode_cmd));
+
+    const esp_console_cmd_t debugmode_cmd = {
+        .command = "debugmode",
+        .help = "Toggle debug mode (or 'debugmode on/off')",
+        .hint = "[on|off]",
+        .func = &cmd_debugmode,
+        .argtable = NULL
+    };
+    ESP_ERROR_CHECK(esp_console_cmd_register(&debugmode_cmd));
+    
+    const esp_console_cmd_t reboot_cmd = {
+        .command = "reboot",
+        .help = "Reboot the chip",
+        .hint = NULL,
+        .func = &cmd_reboot,
+        .argtable = NULL
+    };
+    ESP_ERROR_CHECK(esp_console_cmd_register(&reboot_cmd));
 
     /* Start background task to test log interleaving */
     xTaskCreate(background_log_task, "bg_log", 2048, NULL, 5, NULL);

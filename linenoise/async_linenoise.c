@@ -1362,7 +1362,10 @@ char *linenoiseEditFeed(struct linenoiseState *l)
                 flushWrite();
             }
         } else if (c == ESC) {
-            return linenoiseEditMore;
+            if (debug_mode) printf("\n[DEBUG] ESC detected in dumb mode, auto-upgrading to smart mode.\n");
+            dumbmode = 0;
+            linenoiseShow(l);
+            goto process_smart;
         } else if (c >= 0x20 && c < 0x7f) { /* printable ASCII */
             if (l->len < l->buflen) {
                 l->buf[l->len++] = c;
@@ -1375,6 +1378,8 @@ char *linenoiseEditFeed(struct linenoiseState *l)
         /* Discard all other control/escape bytes silently */
         return linenoiseEditMore;
     }
+
+process_smart:
 
     /* Tab completion requires an interactive read-back loop; temporarily
      * restore blocking mode so completeLine doesn't spin on EAGAIN. */

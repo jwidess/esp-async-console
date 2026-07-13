@@ -391,7 +391,6 @@ static int getColumns(void) {
     const char set_cursor_pos[] = "\x1b[%dD";
 
     // Temp disable dumbmode for query sequences
-    int orig_dumbmode = dumbmode;
     dumbmode = 0;
 
     /* Get the initial position so we can restore it later. */
@@ -1280,9 +1279,7 @@ int linenoiseEditStart(struct linenoiseState *l, char *buf, size_t buflen,
 
 
     if (dumbmode) {
-        /* In dumb mode, we just print the prompt and wait for characters */
-        if (write(out_fd, prompt, l->plen) == -1) return -1;
-        flushWrite();
+        // In dumb mode don't print prompt
     } else {
         /* Write the prompt before activating the state */
         if (write(out_fd, prompt, l->plen) == -1) return -1;
@@ -1400,8 +1397,9 @@ char *linenoiseEditFeed(struct linenoiseState *l)
         history_len--;
         free(history[history_len]);
         if (mlmode) linenoiseEditMoveEnd(l);
-        /* Clear hint display before returning */
-        if (hintsCallback) {
+        /* Clear hint display before returning. Only if the buffer is not emptyto prevent 
+         * drawing a stray prompt when hitting enter to probe for dumbmode. */
+        if (hintsCallback && l->len > 0) {
             linenoiseHintsCallback *hc = hintsCallback;
             hintsCallback = NULL;
             refreshLine(l);

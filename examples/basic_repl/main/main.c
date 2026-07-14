@@ -42,28 +42,34 @@ static int cmd_table(int argc, char **argv)
     return 0;
 }
 
-static int cmd_dumbmode(int argc, char **argv)
+static int cmd_term_mode(int argc, char **argv)
 {
     if (argc > 1) {
-        if (strcmp(argv[1], "on") == 0 || strcmp(argv[1], "1") == 0) {
-            linenoiseSetDumbMode(1);
-            printf("Dumb mode enabled.\n");
-        } else if (strcmp(argv[1], "off") == 0 || strcmp(argv[1], "0") == 0) {
-            linenoiseSetDumbMode(0);
-            printf("Dumb mode disabled.\n");
+        if (strcmp(argv[1], "auto") == 0) {
+            linenoiseSetTerminalMode(LINENOISE_MODE_AUTO);
+            printf("Terminal mode set to AUTO.\n");
+        } else if (strcmp(argv[1], "smart") == 0) {
+            linenoiseSetTerminalMode(LINENOISE_MODE_SMART);
+            printf("Terminal mode set to SMART.\n");
+        } else if (strcmp(argv[1], "dumb") == 0) {
+            linenoiseSetTerminalMode(LINENOISE_MODE_DUMB);
+            printf("Terminal mode set to DUMB.\n");
         } else {
-            printf("Usage: dumbmode [on|off]\n");
+            printf("Usage: terminalmode [auto|smart|dumb]\n");
         }
     } else {
-        /* Toggle */
-        int current = linenoiseIsDumbMode();
-        linenoiseSetDumbMode(!current);
-        printf("Dumb mode %s.\n", !current ? "enabled" : "disabled");
+        linenoiseTerminalMode_t current = linenoiseGetTerminalMode();
+        const char *mode_str = "AUTO";
+        if (current == LINENOISE_MODE_SMART) mode_str = "SMART";
+        else if (current == LINENOISE_MODE_DUMB) mode_str = "DUMB";
+        
+        printf("Current terminal mode: %s\n", mode_str);
+        printf("Usage: terminalmode [auto|smart|dumb]\n");
     }
     return 0;
 }
 
-static bool current_debug_mode = true;
+static bool current_debug_mode = false;
 static int cmd_debugmode(int argc, char **argv)
 {
     if (argc > 1) {
@@ -158,14 +164,14 @@ void app_main(void)
     };
     ESP_ERROR_CHECK(esp_console_cmd_register(&table_cmd));
 
-    const esp_console_cmd_t dumbmode_cmd = {
-        .command = "dumbmode",
-        .help = "Toggle dumb terminal mode (or 'dumbmode on/off')",
-        .hint = "[on|off]",
-        .func = &cmd_dumbmode,
+    const esp_console_cmd_t term_cmd = {
+        .command = "terminalmode",
+        .help = "Set terminal capability detection (or 'terminalmode auto/smart/dumb')",
+        .hint = "[auto|smart|dumb]",
+        .func = &cmd_term_mode,
         .argtable = NULL
     };
-    ESP_ERROR_CHECK(esp_console_cmd_register(&dumbmode_cmd));
+    ESP_ERROR_CHECK(esp_console_cmd_register(&term_cmd));
 
     const esp_console_cmd_t debugmode_cmd = {
         .command = "debugmode",

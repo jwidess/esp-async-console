@@ -145,7 +145,11 @@ static linenoiseFreeHintsCallback *freeHintsCallback = NULL;
 
 static size_t max_cmdline_length = LINENOISE_DEFAULT_MAX_LINE;
 static int mlmode = 0;  /* Multi line mode. Default is single line. */
-static int dumbmode = 0; /* Dumb mode where line editing is disabled. Off by default */
+static linenoiseTerminalMode_t configured_mode = LINENOISE_MODE_AUTO;
+static int dumbmode = 0; /* Active resolved state: 0 = smart, 1 = dumb */
+static bool force_refresh_cols = true;
+static int cached_cols = 80;
+static long long last_probe_time = 0;
 static int history_max_len = LINENOISE_DEFAULT_HISTORY_MAX_LEN;
 static int history_len = 0;
 static char **history = NULL;
@@ -213,14 +217,20 @@ void linenoiseSetMultiLine(int ml) {
     mlmode = ml;
 }
 
-/* Set if terminal does not recognize escape sequences */
-void linenoiseSetDumbMode(int set) {
-    dumbmode = set;
+/* Set the terminal capability detection mode. */
+void linenoiseSetTerminalMode(linenoiseTerminalMode_t mode) {
+    configured_mode = mode;
+    if (mode == LINENOISE_MODE_SMART) {
+        dumbmode = 0;
+    } else if (mode == LINENOISE_MODE_DUMB) {
+        dumbmode = 1;
+    }
+    force_refresh_cols = true;
 }
 
-/* Returns whether the current mode is dumbmode or not. */
-bool linenoiseIsDumbMode(void) {
-    return dumbmode;
+/* Returns the configured terminal mode. */
+linenoiseTerminalMode_t linenoiseGetTerminalMode(void) {
+    return configured_mode;
 }
 
 static void flushWrite(void) {
@@ -362,13 +372,15 @@ static int getCursorPosition(void) {
 
 /* Try to get the number of columns in the current terminal, or assume 80
  * if it fails. Cache the value to prevent lag on every prompt. */
-static int cached_cols = 80;
-static bool force_refresh_cols = true;
-static long long last_probe_time = 0;
-
 static int getColumns(void) {
     long long now = get_current_time_ms();
     
+    if (configured_mode == LINENOISE_MODE_DUMB) {
+        dumbmode = 1;
+        force_refresh_cols = false;
+        return 80;
+    }
+
     // Only query if force_refresh_cols is true
     if (!force_refresh_cols) {
         return dumbmode ? 80 : cached_cols;
@@ -398,18 +410,15 @@ static int getColumns(void) {
     if (start <= 0) {
         if (debug_mode) {
             long long elapsed = get_current_time_ms() - start_time;
-            printf("\n[DEBUG] getColumns failed to get cursor start position after %lld ms. Falling back to dumb mode.\n", elapsed);
+            printf("\n[DEBUG] getColumns failed to get cursor start position after %lld ms. %s\n", 
+                   elapsed, configured_mode == LINENOISE_MODE_AUTO ? "Falling back to dumb mode." : "Keeping smart mode.");
         }
-        dumbmode = 1;
-        force_refresh_cols = false;
         goto failed;
     }
 
     /* Send the command to go to right margin. Use `write` function instead of
      * `fwrite` for the same reasons explained in `getCursorPosition()` */
     if (write(fd, move_cursor_right, cmd_len) != cmd_len) {
-        dumbmode = 1;
-        force_refresh_cols = false;
         goto failed;
     }
     flushWrite();
@@ -420,10 +429,9 @@ static int getColumns(void) {
     if (cols < 10) {
         if (debug_mode) {
             long long elapsed = get_current_time_ms() - start_time;
-            printf("\n[DEBUG] getColumns failed/returned invalid width %d after %lld ms. Falling back to dumb mode.\n", cols, elapsed);
+            printf("\n[DEBUG] getColumns failed/returned invalid width %d after %lld ms. %s\n", 
+                   cols, elapsed, configured_mode == LINENOISE_MODE_AUTO ? "Falling back to dumb mode." : "Keeping smart mode.");
         }
-        dumbmode = 1;
-        force_refresh_cols = false;
         goto failed;
     }
 
@@ -454,7 +462,11 @@ static int getColumns(void) {
     return cols;
 
 failed:
-    dumbmode = 1;
+    if (configured_mode == LINENOISE_MODE_AUTO) {
+        dumbmode = 1;
+    } else {
+        dumbmode = 0; /* Forced smart mode */
+    }
     force_refresh_cols = false;
     return 80;
 }
@@ -1361,7 +1373,7 @@ char *linenoiseEditFeed(struct linenoiseState *l)
                 fputs("\b \b", stdout);
                 flushWrite();
             }
-        } else if (c == ESC) {
+        } else if (c == ESC && configured_mode == LINENOISE_MODE_AUTO) {
             if (debug_mode) printf("\n[DEBUG] ESC detected in dumb mode, auto-upgrading to smart mode.\n");
             dumbmode = 0;
             linenoiseShow(l);

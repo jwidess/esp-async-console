@@ -69,10 +69,10 @@ extern "C" {
 #define linenoiseHistorySave async_linenoiseHistorySave
 #define linenoiseHistorySetMaxLen async_linenoiseHistorySetMaxLen
 #define linenoiseInsertPastedChar async_linenoiseInsertPastedChar
-#define linenoiseIsDumbMode async_linenoiseIsDumbMode
+#define linenoiseGetTerminalMode async_linenoiseGetTerminalMode
 #define linenoiseProbe async_linenoiseProbe
 #define linenoiseSetCompletionCallback async_linenoiseSetCompletionCallback
-#define linenoiseSetDumbMode async_linenoiseSetDumbMode
+#define linenoiseSetTerminalMode async_linenoiseSetTerminalMode
 #define linenoiseSetFreeHintsCallback async_linenoiseSetFreeHintsCallback
 #define linenoiseSetHintsCallback async_linenoiseSetHintsCallback
 #define linenoiseSetMaxLineLen async_linenoiseSetMaxLineLen
@@ -87,6 +87,13 @@ extern "C" {
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+
+/* Terminal Capability Modes */
+typedef enum {
+    LINENOISE_MODE_AUTO = 0,
+    LINENOISE_MODE_SMART,
+    LINENOISE_MODE_DUMB
+} linenoiseTerminalMode_t;
 
 typedef struct linenoiseCompletions {
   size_t len;
@@ -111,8 +118,8 @@ int linenoiseHistoryLoad(const char *filename);
 void linenoiseHistoryFree(void);
 void linenoiseClearScreen(void);
 void linenoiseSetMultiLine(int ml);
-void linenoiseSetDumbMode(int set);
-bool linenoiseIsDumbMode(void);
+void linenoiseSetTerminalMode(linenoiseTerminalMode_t mode);
+linenoiseTerminalMode_t linenoiseGetTerminalMode(void);
 void linenoiseAllowEmpty(bool);
 int linenoiseSetMaxLineLen(size_t len);
 

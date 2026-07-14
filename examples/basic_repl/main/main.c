@@ -69,6 +69,14 @@ static int cmd_term_mode(int argc, char **argv)
     return 0;
 }
 
+static int cmd_mode_msgs(int argc, char **argv)
+{
+    bool current = linenoiseGetModeMessages();
+    linenoiseSetModeMessages(!current);
+    printf("Terminal mode change messages %s.\n", !current ? "enabled" : "disabled");
+    return 0;
+}
+
 static bool current_debug_mode = false;
 static int cmd_debugmode(int argc, char **argv)
 {
@@ -172,6 +180,15 @@ void app_main(void)
         .argtable = NULL
     };
     ESP_ERROR_CHECK(esp_console_cmd_register(&term_cmd));
+
+    const esp_console_cmd_t mode_msgs_cmd = {
+        .command = "modemessages",
+        .help = "Toggle terminal mode change messages",
+        .hint = NULL,
+        .func = &cmd_mode_msgs,
+        .argtable = NULL
+    };
+    ESP_ERROR_CHECK(esp_console_cmd_register(&mode_msgs_cmd));
 
     const esp_console_cmd_t debugmode_cmd = {
         .command = "debugmode",

@@ -73,6 +73,8 @@ extern "C" {
 #define linenoiseProbe async_linenoiseProbe
 #define linenoiseSetCompletionCallback async_linenoiseSetCompletionCallback
 #define linenoiseSetTerminalMode async_linenoiseSetTerminalMode
+#define linenoiseSetModeMessages async_linenoiseSetModeMessages
+#define linenoiseGetModeMessages async_linenoiseGetModeMessages
 #define linenoiseSetFreeHintsCallback async_linenoiseSetFreeHintsCallback
 #define linenoiseSetHintsCallback async_linenoiseSetHintsCallback
 #define linenoiseSetMaxLineLen async_linenoiseSetMaxLineLen
@@ -120,6 +122,8 @@ void linenoiseClearScreen(void);
 void linenoiseSetMultiLine(int ml);
 void linenoiseSetTerminalMode(linenoiseTerminalMode_t mode);
 linenoiseTerminalMode_t linenoiseGetTerminalMode(void);
+void linenoiseSetModeMessages(bool enable);
+bool linenoiseGetModeMessages(void);
 void linenoiseAllowEmpty(bool);
 int linenoiseSetMaxLineLen(size_t len);
 

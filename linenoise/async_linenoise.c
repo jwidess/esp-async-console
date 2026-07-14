@@ -147,6 +147,8 @@ static size_t max_cmdline_length = LINENOISE_DEFAULT_MAX_LINE;
 static int mlmode = 0;  /* Multi line mode. Default is single line. */
 static linenoiseTerminalMode_t configured_mode = LINENOISE_MODE_AUTO;
 static int dumbmode = 0; /* Active resolved state: 0 = smart, 1 = dumb */
+static int last_notified_dumbmode = 0;
+static bool show_mode_messages = true;
 static bool force_refresh_cols = true;
 static int cached_cols = 80;
 static long long last_probe_time = 0;
@@ -222,8 +224,10 @@ void linenoiseSetTerminalMode(linenoiseTerminalMode_t mode) {
     configured_mode = mode;
     if (mode == LINENOISE_MODE_SMART) {
         dumbmode = 0;
+        last_notified_dumbmode = 0;
     } else if (mode == LINENOISE_MODE_DUMB) {
         dumbmode = 1;
+        last_notified_dumbmode = 1;
     }
     force_refresh_cols = true;
 }
@@ -231,6 +235,14 @@ void linenoiseSetTerminalMode(linenoiseTerminalMode_t mode) {
 /* Returns the configured terminal mode. */
 linenoiseTerminalMode_t linenoiseGetTerminalMode(void) {
     return configured_mode;
+}
+
+void linenoiseSetModeMessages(bool enable) {
+    show_mode_messages = enable;
+}
+
+bool linenoiseGetModeMessages(void) {
+    return show_mode_messages;
 }
 
 static void flushWrite(void) {
@@ -377,6 +389,7 @@ static int getColumns(void) {
     
     if (configured_mode == LINENOISE_MODE_DUMB) {
         dumbmode = 1;
+        last_notified_dumbmode = 1;
         force_refresh_cols = false;
         return 80;
     }
@@ -454,18 +467,30 @@ static int getColumns(void) {
 
     if (debug_mode) {
         long long elapsed = get_current_time_ms() - start_time;
-        printf("\n[DEBUG] getColumns succeeded in %lld ms (columns: %d). Setting smart mode.\n", elapsed, cols);
+        printf("\n[DEBUG] getColumns succeeded in %lld ms (columns: %d).\n", elapsed, cols);
+    }
+    if (show_mode_messages && last_notified_dumbmode != 0) {
+        printf("--- Upgraded to smart terminal ---\r\n");
     }
     dumbmode = 0;
+    last_notified_dumbmode = 0;
     cached_cols = cols;
     force_refresh_cols = false;
     return cols;
 
 failed:
     if (configured_mode == LINENOISE_MODE_AUTO) {
+        if (show_mode_messages && last_notified_dumbmode != 1) {
+            printf("--- Falling back to dumb terminal ---\r\n");
+        }
         dumbmode = 1;
+        last_notified_dumbmode = 1;
     } else {
+        if (show_mode_messages && last_notified_dumbmode != 0) {
+            printf("--- Upgraded to smart terminal ---\r\n");
+        }
         dumbmode = 0; /* Forced smart mode */
+        last_notified_dumbmode = 0;
     }
     force_refresh_cols = false;
     return 80;
@@ -1375,7 +1400,11 @@ char *linenoiseEditFeed(struct linenoiseState *l)
             }
         } else if (c == ESC && configured_mode == LINENOISE_MODE_AUTO) {
             if (debug_mode) printf("\n[DEBUG] ESC detected in dumb mode, auto-upgrading to smart mode.\n");
+            if (show_mode_messages && last_notified_dumbmode != 0) {
+                printf("--- Upgraded to smart terminal ---\r\n");
+            }
             dumbmode = 0;
+            last_notified_dumbmode = 0;
             linenoiseShow(l);
             goto process_smart;
         } else if (c >= 0x20 && c < 0x7f) { /* printable ASCII */

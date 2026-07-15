@@ -128,6 +128,34 @@ static void background_log_task(void *arg)
     }
 }
 
+static void custom_completion(const char *buf, linenoiseCompletions *lc) {
+    // Fallback to standard ESP-IDF console command completions
+    esp_console_get_completion(buf, lc);
+    
+    // Add custom argument completions for `terminalmode`
+    if (strncmp(buf, "terminalmode ", 13) == 0) {
+        const char *arg = buf + 13;
+        if (strncmp(arg, "a", 1) == 0 || strlen(arg) == 0) {
+            linenoiseAddCompletion(lc, "terminalmode auto");
+        }
+        if (strncmp(arg, "s", 1) == 0 || strlen(arg) == 0) {
+            linenoiseAddCompletion(lc, "terminalmode smart");
+        }
+        if (strncmp(arg, "d", 1) == 0 || strlen(arg) == 0) {
+            linenoiseAddCompletion(lc, "terminalmode dumb");
+        }
+    }
+    
+    // Add custom argument completions for `debugmode`
+    if (strncmp(buf, "debugmode ", 10) == 0) {
+        const char *arg = buf + 10;
+        if (strncmp(arg, "o", 1) == 0 || strlen(arg) == 0) {
+            linenoiseAddCompletion(lc, "debugmode on");
+            linenoiseAddCompletion(lc, "debugmode off");
+        }
+    }
+}
+
 void app_main(void)
 {
     ESP_LOGI(TAG, "Starting basic_repl example");
@@ -141,6 +169,9 @@ void app_main(void)
 
     /* Initialize the async console */
     ESP_ERROR_CHECK(async_console_init(UART_NUM_0, CONFIG_ESP_CONSOLE_UART_BAUDRATE, "esp32> "));
+    
+    /* Optional: Override standard completion to add custom argument completions */
+    linenoiseSetCompletionCallback(custom_completion);
 
     //esp_console_set_debug_mode(true); // Enable debug mode by default
 

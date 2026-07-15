@@ -44,11 +44,38 @@ extern "C" {
 #endif
 
 /* ── Rename all linenoise symbols to avoid ESP-IDF linker collisions ───── */
-#define getMillis async_linenoise_getMillis
+
+/**
+ * @brief Synchronous line editing entrypoint.
+ * 
+ * This is the classic blocking linenoise function. It displays the prompt,
+ * reads input character by character synchronously, and returns the finished line.
+ * 
+ * @param prompt Prompt string to display.
+ * @return Heap-allocated finished string, or NULL on EOF/error. User must free it using linenoiseFree().
+ */
 #define linenoise async_linenoise
+
+/**
+ * @brief Add a completion suggestion string to the completions list.
+ * 
+ * @param completions Pointer to the completions list structure.
+ * @param str Completion suggestion string.
+ */
 #define linenoiseAddCompletion async_linenoiseAddCompletion
+
+/**
+ * @brief Set whether empty lines are allowed to be submitted.
+ * 
+ * @param allow true to allow empty lines, false to ignore Enter on empty input.
+ */
 #define linenoiseAllowEmpty async_linenoiseAllowEmpty
+
+/**
+ * @brief Clear the terminal screen.
+ */
 #define linenoiseClearScreen async_linenoiseClearScreen
+
 #define linenoiseEditBackspace async_linenoiseEditBackspace
 #define linenoiseEditDelete async_linenoiseEditDelete
 #define linenoiseEditDeletePrevWord async_linenoiseEditDeletePrevWord
@@ -61,28 +88,144 @@ extern "C" {
 #define linenoiseEditMoveRight async_linenoiseEditMoveRight
 #define linenoiseEditStart async_linenoiseEditStart
 #define linenoiseEditStop async_linenoiseEditStop
+
+/**
+ * @brief Free a buffer allocated by linenoise.
+ * 
+ * @param ptr Pointer to the allocated memory.
+ */
 #define linenoiseFree async_linenoiseFree
+
 #define linenoiseHide async_linenoiseHide
+
+/**
+ * @brief Add a line to the command history.
+ * 
+ * @param line String line to add.
+ * @return 1 on success, 0 on error.
+ */
 #define linenoiseHistoryAdd async_linenoiseHistoryAdd
+
+/**
+ * @brief Free all command history entries.
+ */
 #define linenoiseHistoryFree async_linenoiseHistoryFree
+
+/**
+ * @brief Load history entries from a file.
+ * 
+ * @param filename File path to load from.
+ * @return 0 on success, -1 on error.
+ */
 #define linenoiseHistoryLoad async_linenoiseHistoryLoad
+
+/**
+ * @brief Save history entries to a file.
+ * 
+ * @param filename File path to save to.
+ * @return 0 on success, -1 on error.
+ */
 #define linenoiseHistorySave async_linenoiseHistorySave
+
+/**
+ * @brief Set the maximum command history buffer size.
+ * 
+ * @param len Max history capacity.
+ * @return 1 on success, 0 on error.
+ */
 #define linenoiseHistorySetMaxLen async_linenoiseHistorySetMaxLen
+
 #define linenoiseInsertPastedChar async_linenoiseInsertPastedChar
+
+/**
+ * @brief Get the configured terminal capability mode.
+ * 
+ * @return The current terminal mode setting.
+ */
 #define linenoiseGetTerminalMode async_linenoiseGetTerminalMode
+
+/**
+ * @brief Probe terminal columns by querying the cursor position.
+ * 
+ * @return Number of columns detected, or -1 on error.
+ */
 #define linenoiseProbe async_linenoiseProbe
+
+/**
+ * @brief Register a callback to handle tab completion.
+ * 
+ * @param callback The completion callback function.
+ */
 #define linenoiseSetCompletionCallback async_linenoiseSetCompletionCallback
+
+/**
+ * @brief Set the terminal capability mode (auto-detect, forced smart, or forced dumb).
+ * 
+ * @param mode The terminal capability mode.
+ */
 #define linenoiseSetTerminalMode async_linenoiseSetTerminalMode
+
+/**
+ * @brief Enable or disable short notifications printed on terminal capability detection changes.
+ * 
+ * @param enable true to enable transition logs, false to disable.
+ */
 #define linenoiseSetModeMessages async_linenoiseSetModeMessages
+
+/**
+ * @brief Get whether terminal capability mode switch notifications are enabled.
+ * 
+ * @return true if notifications are enabled.
+ */
 #define linenoiseGetModeMessages async_linenoiseGetModeMessages
+
+/**
+ * @brief Register a callback to free resources allocated for inline hints.
+ * 
+ * @param callback The free hints callback function.
+ */
 #define linenoiseSetFreeHintsCallback async_linenoiseSetFreeHintsCallback
+
+/**
+ * @brief Register a callback to provide inline input hints.
+ * 
+ * @param callback The hints callback function.
+ */
 #define linenoiseSetHintsCallback async_linenoiseSetHintsCallback
+
+/**
+ * @brief Set the maximum allowable command line length.
+ * 
+ * @param len The maximum length in bytes.
+ * @return 1 on success, 0 on error.
+ */
 #define linenoiseSetMaxLineLen async_linenoiseSetMaxLineLen
+
+/**
+ * @brief Set multiline mode.
+ * 
+ * In multiline mode, linenoise will wrap long lines to multiple terminal lines
+ * instead of scrolling horizontally.
+ * 
+ * @param ml 1 to enable multiline mode, 0 to disable.
+ */
 #define linenoiseSetMultiLine async_linenoiseSetMultiLine
+
+/**
+ * @brief Set terminal attributes / read characteristics (e.g. non-blocking).
+ */
 #define linenoiseSetReadCharacteristics async_linenoiseSetReadCharacteristics
+
+/**
+ * @brief Override the standard read function for linenoise input.
+ * 
+ * @param read_fn Pointer to the custom read function.
+ */
 #define linenoiseSetReadFunction async_linenoiseSetReadFunction
+
 #define linenoiseShow async_linenoiseShow
 #define refreshShowHints async_linenoise_refreshShowHints
+#define getMillis async_linenoise_getMillis
 
 #include <sys/types.h>
 #include <unistd.h>
@@ -105,10 +248,11 @@ typedef struct linenoiseCompletions {
 typedef void(linenoiseCompletionCallback)(const char *, linenoiseCompletions *);
 typedef const char*(linenoiseHintsCallback)(const char *, int *color, int *bold);
 typedef void(linenoiseFreeHintsCallback)(void *);
-void linenoiseSetCompletionCallback(linenoiseCompletionCallback *);
-void linenoiseSetHintsCallback(linenoiseHintsCallback *);
-void linenoiseSetFreeHintsCallback(linenoiseFreeHintsCallback *);
-void linenoiseAddCompletion(linenoiseCompletions *, const char *);
+
+void linenoiseSetCompletionCallback(linenoiseCompletionCallback *callback);
+void linenoiseSetHintsCallback(linenoiseHintsCallback *callback);
+void linenoiseSetFreeHintsCallback(linenoiseFreeHintsCallback *callback);
+void linenoiseAddCompletion(linenoiseCompletions *completions, const char *str);
 
 int linenoiseProbe(void);
 char *linenoise(const char *prompt);
@@ -124,7 +268,7 @@ void linenoiseSetTerminalMode(linenoiseTerminalMode_t mode);
 linenoiseTerminalMode_t linenoiseGetTerminalMode(void);
 void linenoiseSetModeMessages(bool enable);
 bool linenoiseGetModeMessages(void);
-void linenoiseAllowEmpty(bool);
+void linenoiseAllowEmpty(bool allow);
 int linenoiseSetMaxLineLen(size_t len);
 
 typedef ssize_t (*linenoise_read_bytes_fn)(int, void*, size_t);

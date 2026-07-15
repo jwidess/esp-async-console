@@ -1406,7 +1406,7 @@ char *linenoiseEditFeed(struct linenoiseState *l)
             dumbmode = 0;
             last_notified_dumbmode = 0;
             linenoiseShow(l);
-            goto process_smart;
+            /* Fall through to smart mode processing for this byte */
         } else if (c >= 0x20 && c < 0x7f) { /* printable ASCII */
             if (l->len < l->buflen) {
                 l->buf[l->len++] = c;
@@ -1416,11 +1416,13 @@ char *linenoiseEditFeed(struct linenoiseState *l)
                 flushWrite();
             }
         }
-        /* Discard all other control/escape bytes silently */
-        return linenoiseEditMore;
+        
+        /* If still in dumb mode, we are done processing this byte.
+         * Discard all other unhandled control/escape bytes silently. */
+        if (dumbmode) {
+            return linenoiseEditMore;
+        }
     }
-
-process_smart:
 
     /* Tab completion requires an interactive read-back loop; temporarily
      * restore blocking mode so completeLine doesn't spin on EAGAIN. */

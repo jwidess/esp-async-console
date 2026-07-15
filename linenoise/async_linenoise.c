@@ -1526,8 +1526,10 @@ char *linenoiseEditFeed(struct linenoiseState *l)
                 r = (int)read_func(in_fd, seq + 2, 1);
                 if (r != 1) break;
                 if (seq[2] == '~') {
-                    /* ESC [ n ~ only Delete (3~) handled */
+                    // ESC [ n ~ sequences
                     if (seq[1] == '3') linenoiseEditDelete(l);
+                    else if (seq[1] == '1' || seq[1] == '7') linenoiseEditMoveHome(l); // Home key
+                    else if (seq[1] == '4' || seq[1] == '8') linenoiseEditMoveEnd(l); // End key
                 } else if (seq[2] >= 0x40 && seq[2] <= 0x7E) {
                     /* Single extra-byte CSI terminator, already consumed, ignore */
                     if (((seq[1] == '0' || seq[1] == '3') && seq[2] == 'n') || seq[2] == 'R' || seq[2] == 'c') {

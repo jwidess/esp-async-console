@@ -1,9 +1,13 @@
-/* linenoise.h -- VERSION 1.0
+/* async_linenoise.h -- VERSION 1.0
  *
  * Guerrilla line editing library against the idea that a line editing lib
  * needs to be 20,000 lines of C code.
  *
- * See linenoise.c for more information.
+ * See async_linenoise.c for more information.
+ * 
+ * You can find the original source code at:
+ *
+ *   http://github.com/antirez/linenoise
  *
  * ------------------------------------------------------------------------
  *

@@ -4,6 +4,8 @@ This is a non-blocking, async REPL (Read-Evaluate-Print-Loop) console component 
 
 This component is built on a fork of the [ESP-IDF Console component](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/console.html), primarily re-writing `linenoise` as a character-feed state machine so the console REPL runs in a FreeRTOS task without blocking on `read()`.
 
+![Console Demo](example.gif)
+
 ## Features
 
 - **Non-blocking I/O** - the REPL task polls for input via `linenoiseEditFeed()`, yielding to the scheduler between characters

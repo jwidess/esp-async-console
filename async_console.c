@@ -121,8 +121,8 @@ esp_err_t async_console_init(uart_port_t uart_num, int baud_rate, const char *pr
   uart_vfs_dev_use_driver(uart_num);
 
   const esp_console_config_t console_cfg = {
-      .max_cmdline_args   = 8,
-      .max_cmdline_length = 256,
+      .max_cmdline_args   = CONFIG_ASYNC_CONSOLE_MAX_CMDLINE_ARGS,
+      .max_cmdline_length = CONFIG_ASYNC_CONSOLE_MAX_CMDLINE_LENGTH,
   };
   ret = esp_console_init(&console_cfg);
   if (ret != ESP_OK) {

@@ -115,6 +115,16 @@ Enables verbose logging of raw bytes received and probe timing:
 esp_console_set_debug_mode(true);
 ```
 
+### Console Limits
+
+By default, the console supports command lines up to **256 characters** and **8 arguments** (including the command name). You can increase these limits via `idf.py menuconfig`:
+
+* `Component config` -> `Async Console Configuration`
+  * `Maximum command line arguments` (e.g., 32)
+  * `Maximum command line length` (e.g., 512)
+
+*(Note: Standard ESP-IDF console settings like `CONFIG_CONSOLE_SORTED_HELP`, are used by this component.)*
+
 ## API Reference
 
 ### `async_console.h`

@@ -4,7 +4,7 @@
 #include "freertos/semphr.h"
 #include "linenoise/async_linenoise.h"
 
-#define ASYNC_CONSOLE_LINE_BUF_LEN 256
+#define ASYNC_CONSOLE_LINE_BUF_LEN CONFIG_ASYNC_CONSOLE_MAX_CMDLINE_LENGTH
 
 extern struct linenoiseState g_ls;
 extern char g_ln_buf[ASYNC_CONSOLE_LINE_BUF_LEN];

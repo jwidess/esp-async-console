@@ -1,0 +1,15 @@
+menu "Async Console Configuration"
+
+    config ASYNC_CONSOLE_MAX_CMDLINE_ARGS
+        int "Maximum command line arguments"
+        default 8
+        help
+            Maximum number of arguments parsed by the console, including the command name itself.
+
+    config ASYNC_CONSOLE_MAX_CMDLINE_LENGTH
+        int "Maximum command line length"
+        default 256
+        help
+            Maximum length of a command line in bytes.
+
+endmenu

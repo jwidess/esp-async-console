@@ -6,4 +6,4 @@ description: >
 url: "https://github.com/jwidess/esp-async-console"
 license: "Apache-2.0"
 dependencies:
-  idf: ">=6.0.0"
+  idf: ">=5.3"

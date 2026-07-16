@@ -120,7 +120,7 @@ esp_console_set_debug_mode(true);
 By default, the console supports command lines up to **256 characters** and **8 arguments** (including the command name). You can increase these limits via `idf.py menuconfig`:
 
 * `Component config` -> `Async Console Configuration`
-  * `Maximum command line arguments` (e.g., 32)
+  * `Maximum command line arguments` *(Note: ESP-IDF reserves 1 slot for the command name and 1 for a NULL terminator. E.g. 16 allows the command + 14 arguments.)*
   * `Maximum command line length` (e.g., 512)
 
 *(Note: Standard ESP-IDF console settings like `CONFIG_CONSOLE_SORTED_HELP`, are used by this component.)*

@@ -4,7 +4,9 @@ menu "Async Console Configuration"
         int "Maximum command line arguments"
         default 8
         help
-            Maximum number of arguments parsed by the console, including the command name itself.
+            Maximum number of elements parsed by the console.
+            Note: ESP-IDF reserves 1 slot for the command name and 1 slot for a NULL terminator.
+            Therefore, a value of 16 allows a command name + 14 arguments.
 
     config ASYNC_CONSOLE_MAX_CMDLINE_LENGTH
         int "Maximum command line length"

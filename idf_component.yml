@@ -9,5 +9,5 @@ dependencies:
   idf: ">=5.3"
 files:
   exclude:
-    - "**/.github/**"
-    - "test_apps/**"
+    - "**/.github/**/*"
+    - "test_apps/**/*"

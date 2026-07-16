@@ -183,6 +183,11 @@ ESP_LOG* from any task
        └─ xSemaphoreGive(g_log_mutex)
 ```
 
+## To-Do
+
+- [ ] Reintegrate `test_apps/` for automated testing
+- [ ] Test and verify QEMU ESP-IDF emulation, no idea if this works emulated yet
+
 ## License
 
 - Component code: **Apache License 2.0**

@@ -7,3 +7,7 @@ url: "https://github.com/jwidess/esp-async-console"
 license: "Apache-2.0"
 dependencies:
   idf: ">=5.3"
+files:
+  exclude:
+    - "**/.github/**"
+    - "test_apps/**"

@@ -212,6 +212,13 @@ ESP_LOG* from any task
        └─ xSemaphoreGive(g_log_mutex)
 ```
 
+> [!WARNING]  
+> **Do not use raw `printf()` in background tasks!** 
+> 
+> Because this component guarantees clean log interleaving by hooking `esp_log_set_vprintf`, it only intercepts logs routed through `ESP_LOGx` .
+> 
+> If a background task calls `printf()`, it bypasses the console's mutex and line-clearing operations. The text will write directly to stdout and corrupt screen. `printf()` is only safe to use *inside* a registered console command's execution function (where the prompt is inactive).
+
 ## To-Do
 
 - [ ] Reintegrate `test_apps/` for automated testing

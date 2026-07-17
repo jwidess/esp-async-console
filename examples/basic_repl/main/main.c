@@ -141,6 +141,9 @@ static int cmd_logtest(int argc, char **argv)
 static void background_log_task(void *arg)
 {
     int tick = 0;
+    
+    vTaskDelay(pdMS_TO_TICKS(200));
+    
     while (1) {
         /* Cycle through different log levels */
         switch (tick % 5) {
@@ -217,6 +220,7 @@ static void custom_completion(const char *buf, linenoiseCompletions *lc) {
 
 void app_main(void)
 {
+    ESP_LOGI(TAG, "================================");
     ESP_LOGI(TAG, "Starting basic_repl example");
 
     esp_err_t err = nvs_flash_init();
@@ -323,5 +327,6 @@ void app_main(void)
     /* Start background task to test log interleaving */
     xTaskCreate(background_log_task, "bg_log", 2048, NULL, 5, NULL);
 
-    ESP_LOGI(TAG, "Initialization complete. Try typing 'hello', 'echo 123', or 'table'");
+    ESP_LOGI(TAG, "Init complete. Try typing 'hello', 'echo 123', or 'logtest'");
+    ESP_LOGI(TAG, "================================");
 }

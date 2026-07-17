@@ -130,6 +130,13 @@ Short transition messages (`--- Upgraded to smart terminal ---`) are printed by 
 linenoiseSetModeMessages(false);
 ```
 
+### Serial Terminal Emulators
+
+The async console relies on standard VT100/ANSI escape sequences for its "smart" mode features (history, cursor movement, line clearing, etc.). Recommended serial terminal emulators include: **WindTerm**, **TeraTerm**, **PuTTY**, **Minicom**, etc.
+
+> [!NOTE]  
+> `idf.py monitor`: The standard Espressif IDF Monitor currently has a bug regarding ANSI escape sequences which forces dumb mode as `getColumns` times out. I have a PR that fixes this, but hasn't been merged yet. In the meantime, please use another terminal emulator. See [esp-idf-monitor PR #43](https://github.com/espressif/esp-idf-monitor/pull/43).
+
 ### Colored Logs
 
 The console relies on the ESP32 sending ANSI color codes. If your logs are printing without color (or losing color once the REPL starts), make sure that `CONFIG_LOG_COLORS=y` is defined in your project's `sdkconfig`. When disabled, the *ESP-IDF monitor* automatic coloring does not work as the line clearing operations (`\r\x1b[0K`) [contain new line characters](https://docs.espressif.com/projects/esp-idf/en/latest/esp32s31/api-guides/tools/idf-monitor.html#:~:text=The%20automatic%20coloring%20will%20not%20work%20properly%20if%20the%20message%20contains%20new%20lines.%20In%20this%20case%20the%20IDF%20Monitor%20will%20only%20color%20the%20first%20line%20of%20the%20message.), causing logs to render in plain text.

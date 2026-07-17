@@ -231,6 +231,9 @@ ESP_LOG* from any task
 - [ ] Reintegrate `test_apps/` for automated testing
 - [ ] Test and verify QEMU ESP-IDF emulation, no idea if this works emulated yet
 
+## AI Disclaimer: 
+This project was developed with AI assistance tools. Do note I have put much effort into reviewing and testing any generated content, however issues may still arise.
+
 ## License
 
 - Component code: **Apache License 2.0**

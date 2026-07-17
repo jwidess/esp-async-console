@@ -127,6 +127,10 @@ static int cmd_logtest(int argc, char **argv)
     ESP_LOGI("logtest", "This is an info message");
     ESP_LOGD("logtest", "This is a debug message");
     ESP_LOGV("logtest", "This is a verbose message");
+    
+    printf("\n\033[1;36mThis is custom bold cyan text!\033[0m\n");
+    printf("\033[4;35mThis is custom underlined magenta text!\033[0m\n\n");
+
     printf("This is raw stdout text without newline. Delaying for 1.5 seconds...");
     fflush(stdout);
     vTaskDelay(pdMS_TO_TICKS(1500));
@@ -160,6 +164,27 @@ static void background_log_task(void *arg)
         }
         vTaskDelay(pdMS_TO_TICKS(BG_LOG_TASK_DELAY_MS));
     }
+}
+
+// This overrides the standard ESP-IDF console hints with custom colors
+static const char *custom_hints(const char *buf, int *color, int *bold) {
+    // Get the standard ESP-IDF hint
+    const char *hint = esp_console_get_hint(buf, color, bold);
+    
+    if (hint) {
+        // Override hint color based on the command being typed
+        if (strncmp(buf, "terminalmode", 12) == 0) {
+            *color = 35; // Magenta
+            *bold = 1;
+        } else if (strncmp(buf, "debugmode", 9) == 0) {
+            *color = 33; // Yellow
+            *bold = 0;
+        } else {
+            *color = 36; // Cyan (Default for other commands)
+            *bold = 0;
+        }
+    }
+    return hint;
 }
 
 static void custom_completion(const char *buf, linenoiseCompletions *lc) {
@@ -204,8 +229,9 @@ void app_main(void)
     /* Initialize the async console */
     ESP_ERROR_CHECK(async_console_init(UART_NUM_0, CONFIG_ESP_CONSOLE_UART_BAUDRATE, "esp32> "));
     
-    /* Optional: Override standard completion to add custom argument completions */
+    /* Optional: Override standard completion and hints to add custom behaviors */
     linenoiseSetCompletionCallback(custom_completion);
+    linenoiseSetHintsCallback(custom_hints);
 
     esp_log_level_set("bg", ESP_LOG_VERBOSE);
     esp_log_level_set("logtest", ESP_LOG_VERBOSE);

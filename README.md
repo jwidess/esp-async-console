@@ -80,6 +80,29 @@ static void my_completion(const char *buf, linenoiseCompletions *lc) {
 linenoiseSetCompletionCallback(my_completion);
 ```
 
+### Custom hints & styling
+
+The component registers [esp_console_get_hint](https://docs.espressif.com/projects/esp-idf/en/stable/esp32/api-reference/system/console.html#_CPPv420esp_console_get_hintPKcPiPi) by default to display argument hints provided in the `esp_console_cmd_t` struct. To customize the hint string or apply [ANSI color codes](https://en.wikipedia.org/wiki/ANSI_escape_code#:~:text=bright%20background%20color-,Colors,-edit), override the callback, for example:
+
+```c
+static const char *my_hints(const char *buf, int *color, int *bold) {
+    // Get standard ESP-IDF hint string
+    const char *hint = esp_console_get_hint(buf, color, bold);
+    
+    if (hint) {
+        // Change hint color to Magenta (35) if typing "mycommand"
+        if (strncmp(buf, "mycommand ", 10) == 0) {
+            *color = 35; 
+            *bold = 1;
+        }
+    }
+    return hint;
+}
+
+// After async_console_init():
+linenoiseSetHintsCallback(my_hints);
+```
+
 ### Terminal mode
 
 The console defaults to `LINENOISE_MODE_AUTO`. Under `AUTO` mode, it auto detects if the connected terminal supports smart VT100/ANSI capabilities. If detection fails, the console falls back to **dumb mode**.

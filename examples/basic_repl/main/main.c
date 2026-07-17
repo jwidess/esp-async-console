@@ -10,7 +10,7 @@
 #include "async_console.h"
 #include "linenoise/async_linenoise.h"
 
-#define BG_LOG_TASK_DELAY_MS 3000
+#define BG_LOG_TASK_DELAY_MS 2000
 #define BG_LOG_TABLE_INTERVAL 10
 
 static const char *TAG = "main";
@@ -108,11 +108,45 @@ static int cmd_reboot(int argc, char **argv)
     return 0;
 }
 
+static int cmd_delay(int argc, char **argv)
+{
+    int ms = 5000;
+    if (argc > 1) {
+        ms = atoi(argv[1]);
+    }
+    printf("Delaying for %d ms. Watch background logs...\n", ms);
+    vTaskDelay(pdMS_TO_TICKS(ms));
+    printf("Delay complete.\n");
+    return 0;
+}
+
+static int cmd_logtest(int argc, char **argv)
+{
+    ESP_LOGE("logtest", "This is an error");
+    ESP_LOGW("logtest", "This is a warning");
+    ESP_LOGI("logtest", "This is an info message");
+    ESP_LOGD("logtest", "This is a debug message");
+    ESP_LOGV("logtest", "This is a verbose message");
+    printf("This is raw stdout text without newline. Delaying for 1.5 seconds...");
+    fflush(stdout);
+    vTaskDelay(pdMS_TO_TICKS(1500));
+    printf(" and this is the rest of the line.\n");
+    return 0;
+}
+
 static void background_log_task(void *arg)
 {
     int tick = 0;
     while (1) {
-        ESP_LOGI("bg", "tick %d", tick++);
+        /* Cycle through different log levels */
+        switch (tick % 5) {
+            case 0: ESP_LOGE("bg", "Error log example (tick %d)", tick); break;
+            case 1: ESP_LOGW("bg", "Warning log example (tick %d)", tick); break;
+            case 2: ESP_LOGI("bg", "Info log example (tick %d)", tick); break;
+            case 3: ESP_LOGD("bg", "Debug log example (tick %d)", tick); break;
+            case 4: ESP_LOGV("bg", "Verbose log example (tick %d)", tick); break;
+        }
+        tick++;
         
         if (tick % BG_LOG_TABLE_INTERVAL == 0) {
             ESP_LOGI("bg_table", "\n"
@@ -172,6 +206,9 @@ void app_main(void)
     
     /* Optional: Override standard completion to add custom argument completions */
     linenoiseSetCompletionCallback(custom_completion);
+
+    esp_log_level_set("bg", ESP_LOG_VERBOSE);
+    esp_log_level_set("logtest", ESP_LOG_VERBOSE);
 
     //esp_console_set_debug_mode(true); // Enable debug mode by default
 
@@ -238,6 +275,24 @@ void app_main(void)
         .argtable = NULL
     };
     ESP_ERROR_CHECK(esp_console_cmd_register(&reboot_cmd));
+
+    const esp_console_cmd_t delay_cmd = {
+        .command = "delay",
+        .help = "Delay for a given number of milliseconds (demos background logging while blocked)",
+        .hint = "<ms>",
+        .func = &cmd_delay,
+        .argtable = NULL
+    };
+    ESP_ERROR_CHECK(esp_console_cmd_register(&delay_cmd));
+
+    const esp_console_cmd_t logtest_cmd = {
+        .command = "logtest",
+        .help = "Emit one of each ESP_LOG level and demo raw stdout",
+        .hint = NULL,
+        .func = &cmd_logtest,
+        .argtable = NULL
+    };
+    ESP_ERROR_CHECK(esp_console_cmd_register(&logtest_cmd));
 
     /* Start background task to test log interleaving */
     xTaskCreate(background_log_task, "bg_log", 2048, NULL, 5, NULL);

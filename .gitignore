@@ -19,3 +19,8 @@ pytest_embedded_log/
 # idf-component-manager output
 dependencies.lock
 # ------------------------------------------------
+
+examples/basic_repl/.clangd
+.vscode/settings.json
+examples/basic_repl/.vscode/settings.json
+examples/basic_repl/sdkconfig.old
